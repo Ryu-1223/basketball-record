@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, signOut, type Auth } from 'firebase/auth';
+import { getAuth, connectAuthEmulator, signInWithCustomToken, signOut, type Auth } from 'firebase/auth';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
   collection, doc, onSnapshot, orderBy, query, limit, setDoc, terminate, clearIndexedDbPersistence,
@@ -8,8 +8,9 @@ import {
 import { openDB } from 'idb';
 import type { Game, Play, Player } from './domain';
 import { readableError, type Repository, type SyncState } from './repository';
+import { normalizePassphrase, type TeamAction } from './team';
 
-export const hasCloudConfig = ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_AUTH_DOMAIN', 'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID', 'VITE_TEAM_EMAIL', 'VITE_TEAM_ID'].every(key => Boolean(import.meta.env[key]));
+export const hasCloudConfig = ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_AUTH_DOMAIN', 'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID'].every(key => Boolean(import.meta.env[key]));
 type Services = { auth: Auth; db: Firestore };
 let services: Services | undefined;
 export function getServices(): Services {
@@ -25,8 +26,15 @@ export function getServices(): Services {
   services = { auth, db };
   return services;
 }
-export async function login(passphrase: string) {
-  await signInWithEmailAndPassword(getServices().auth, import.meta.env.VITE_TEAM_EMAIL, passphrase);
+export async function accessTeam(action: TeamAction, input: string) {
+  const passphrase = normalizePassphrase(input);
+  const response = await fetch('/api/team', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, passphrase }), cache: 'no-store', signal: AbortSignal.timeout(25_000),
+  });
+  const data = await response.json().catch(() => null) as { token?: string; error?: string } | null;
+  if (!response.ok || !data?.token) throw new Error(data?.error ?? 'チームに接続できません。通信を確認してもう一度お試しください。');
+  await signInWithCustomToken(getServices().auth, data.token);
 }
 export async function logout() {
   const { auth, db } = getServices();
@@ -38,11 +46,12 @@ export async function logout() {
 }
 
 type QueuedWrite = { path: string; value: Player | Game | Play; version: string };
-export async function createCloudRepository(uid: string): Promise<Repository & { retry: () => void }> {
+export async function createCloudRepository(uid: string, teamId: string): Promise<Repository & { retry: () => void }> {
   const { db } = getServices();
-  const teamPath = `teams/${import.meta.env.VITE_TEAM_ID}`;
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(teamId)) throw new Error('チームに参加し直してください。');
+  const teamPath = `teams/${teamId}`;
   // サーバー拒否時も入力を失わないよう、Firestoreとは別の送信待ちを保持する。
-  const outbox = await openDB(`basketball-outbox-${import.meta.env.VITE_FIREBASE_PROJECT_ID}-${import.meta.env.VITE_TEAM_ID}-${uid}`, 1, {
+  const outbox = await openDB(`basketball-outbox-${import.meta.env.VITE_FIREBASE_PROJECT_ID}-${teamId}-${uid}`, 1, {
     upgrade(database) { database.createObjectStore('writes', { keyPath: 'path' }); },
   });
   const syncListeners = new Set<(state: SyncState) => void>();
@@ -100,7 +109,7 @@ export async function createCloudRepository(uid: string): Promise<Repository & {
   window.addEventListener('online', online);
   retry();
   return {
-    mode: 'cloud', retry,
+    mode: 'cloud', scope: teamId, retry,
     watchPlayers: cb => watch('players', collection(db, `${teamPath}/players`), cb),
     watchGames: (count, cb) => watch('games', query(collection(db, `${teamPath}/games`), orderBy('date', 'desc'), limit(count)), cb),
     watchPlays: (gameId, cb) => watch(`plays:${gameId}`, collection(db, `${teamPath}/games/${gameId}/plays`), cb),

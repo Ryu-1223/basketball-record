@@ -4,6 +4,7 @@ export type SyncState = { pending: number; error: string | null; fromCache: bool
 export type Stop = () => void;
 export interface Repository {
   mode: 'local' | 'cloud';
+  scope: string;
   watchPlayers: (cb: (players: Player[]) => void) => Stop;
   watchGames: (limit: number, cb: (games: Game[]) => void) => Stop;
   watchPlays: (gameId: string, cb: (plays: Play[]) => void) => Stop;

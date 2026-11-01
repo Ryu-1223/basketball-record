@@ -20,6 +20,7 @@ describe('マネージャーの記録操作', () => {
     let now = 1_800_000_000_000;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     render(<App />);
+    await user.click(screen.getByRole('button', { name: 'チームを作成' }));
     await user.click(screen.getByRole('button', { name: 'この端末で試す' }));
     await user.click(await screen.findByRole('button', { name: '選手登録' }));
     await user.type(screen.getByLabelText('背番号'), '7');

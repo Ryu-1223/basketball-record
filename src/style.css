@@ -108,6 +108,9 @@ dialog::backdrop { background: #15251ac4; }
 .cancel { margin-top: 16px; }
 .error { color: #8d2b20; background: #fff1ed; border: 1px solid #e0b7ac; padding: 14px; border-radius: 6px; font-size: 14px; line-height: 1.7; margin-block: 16px; }
 .login { padding-top: min(12vh, 90px); }
+.entry { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; }
+.entry-actions { display: grid; gap: 18px; }
+.entry-actions button { min-height: 72px; font-size: 21px; }
 .login h1 { font-size: 32px; margin: 8px 0; }
 .login .panel { margin-top: 30px; }
 .eyebrow { font-size: 13px; color: #526556; margin-top: 22px; }

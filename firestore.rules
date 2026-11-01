@@ -3,6 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function member(team) {
       return request.auth != null &&
+        request.auth.token.teamId == team &&
         exists(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)).data.enabled == true;
     }
@@ -38,7 +39,7 @@ service cloud.firestore {
       allow read: if member(team);
       allow write: if false;
       match /members/{uid} {
-        allow read: if request.auth != null && request.auth.uid == uid;
+        allow read: if request.auth != null && request.auth.token.teamId == team && request.auth.uid == uid;
         allow write: if false;
       }
       match /players/{id} {

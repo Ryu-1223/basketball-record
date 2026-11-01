@@ -1,9 +1,17 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { loadEnv } from 'vite';
+import { localTeamApi } from './server/local-api.ts';
 
-export default defineConfig({
-  plugins: [react(), VitePWA({
+export default defineConfig(({ mode }) => {
+  const emulator = mode === 'emulator';
+  if (emulator) {
+    const env = loadEnv(mode, process.cwd(), '');
+    for (const key of ['TEAM_API_EMULATORS', 'FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST', 'TEAM_PASSPHRASE_SECRET']) process.env[key] = env[key];
+  }
+  return {
+  plugins: [react(), ...(emulator ? [localTeamApi()] : []), VitePWA({
     registerType: 'prompt',
     injectRegister: false,
     includeAssets: ['icon.svg'],
@@ -16,6 +24,7 @@ export default defineConfig({
     workbox: {
       globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
       navigateFallback: 'index.html',
+      navigateFallbackDenylist: [/^\/api\//],
       cleanupOutdatedCaches: true,
       // Firebaseの応答や認証情報はService Workerでキャッシュしない。
     },
@@ -29,4 +38,4 @@ export default defineConfig({
     ] } } },
   },
   test: { environment: 'jsdom', include: ['src/**/*.test.{ts,tsx}'], restoreMocks: true },
-});
+}; });

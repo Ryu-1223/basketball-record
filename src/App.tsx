@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { onAuthStateChanged } from 'firebase/auth';
 import { registerSW } from 'virtual:pwa-register';
 import { createLocalRepository } from './localRepository';
-import { createCloudRepository, getServices, hasCloudConfig, login, logout } from './firebaseRepository';
+import { createCloudRepository, getServices, hasCloudConfig, accessTeam, logout } from './firebaseRepository';
 import { actionLabels, beginPlay, completePlay, elapsed, formatTime, isShot, localDate, playLabel, sortPlayers, transition, validatePlayer, type Action, type Draft, type Game, type Play, type Player, type Shot } from './domain';
 import { readableError, type Repository, type SyncState } from './repository';
+import { teamIdFromUid, type TeamAction } from './team';
 
 const statusLabels = { ready: '開始前', running: '記録中', interval: 'Q間', finished: '終了' };
 const draftKey = 'basketball-play-draft';
-const viewKey = 'basketball-current-game';
 
 function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -27,6 +27,8 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!hasCloudConfig);
   const [error, setError] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  const [entry, setEntry] = useState<TeamAction | null>(null);
+  const entryLock = useRef(false);
   const [busy, setBusy] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const updateWorker = useRef<((reload?: boolean) => Promise<void>) | null>(null);
@@ -48,7 +50,7 @@ export default function App() {
         setRepo(null);
         if (user) {
           try {
-            const next = await createCloudRepository(user.uid);
+            const next = await createCloudRepository(user.uid, teamIdFromUid(user.uid));
             if (!active || generation !== current) { await next.close(); return; }
             owned = next; setRepo(next);
           } catch (err) { if (active) setError(readableError(err)); }
@@ -60,11 +62,12 @@ export default function App() {
   }, []);
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); if (busy) return;
+    event.preventDefault(); if (entryLock.current || !entry) return;
+    entryLock.current = true;
     setBusy(true); setError('');
-    try { await login(passphrase); setPassphrase(''); }
+    try { await accessTeam(entry, passphrase); setPassphrase(''); }
     catch (err) { setError(readableError(err)); }
-    finally { setBusy(false); }
+    finally { entryLock.current = false; setBusy(false); }
   }
   async function startLocal() {
     setBusy(true); setError('');
@@ -73,27 +76,27 @@ export default function App() {
     finally { setBusy(false); }
   }
   if (!authReady) return <main className="shell"><p role="status">読み込み中…</p></main>;
-  if (repo) return <Workspace repo={repo} updateAvailable={updateAvailable} applyUpdate={() => { void updateWorker.current?.(true); }} onLogout={async () => {
+  if (repo) return <Workspace key={repo.scope} repo={repo} updateAvailable={updateAvailable} applyUpdate={() => { void updateWorker.current?.(true); }} onLogout={async () => {
     if (repo.mode === 'cloud') { await repo.close(); await logout(); }
     else { await repo.close(); setRepo(null); }
   }} />;
-  return <main className="shell login">
-    <div className="brand-mark" aria-hidden="true">●</div>
-    <p className="eyebrow">バスケ部のための</p><h1>バスケの記録</h1>
-    <p className="muted">試合を見ながら、かんたんに記録。</p>
-    {hasCloudConfig ? <form onSubmit={submit} className="panel stack">
-      <label>部活の合言葉<input autoComplete="current-password" type="password" value={passphrase} onChange={event => setPassphrase(event.target.value)} required /></label>
-      <button className="primary" disabled={busy}>{busy ? '確認中…' : '入る'}</button>
-      <p className="muted small">合言葉を知っている部員が、同じ記録を閲覧・編集できます。</p>
-    </form> : <section className="panel stack">
-      <h2>共有の設定を準備中です</h2><p>部内で使い始めるには、管理者による保存先の設定が必要です。</p>
-      {import.meta.env.DEV && <><button className="primary" disabled={busy} onClick={() => { void startLocal(); }}>この端末で試す</button><p className="muted small">試用中の記録はこのブラウザだけに保存されます。</p></>}
-    </section>}
+  return <main className={`shell ${entry ? 'login' : 'entry'}`}>
+    {!entry ? <div className="entry-actions"><button className="primary" onClick={() => { setEntry('create'); setError(''); }}>チームを作成</button><button onClick={() => { setEntry('join'); setError(''); }}>チームに参加</button></div> : <>
+      <button className="quiet back" disabled={busy} onClick={() => { setEntry(null); setPassphrase(''); setError(''); }}>← 戻る</button>
+      <h1>{entry === 'create' ? 'チームを作成' : 'チームに参加'}</h1>
+      <form onSubmit={submit} className="panel stack">
+        <label>合言葉<input autoComplete="off" autoCapitalize="none" spellCheck={false} type="password" value={passphrase} onChange={event => setPassphrase(event.target.value)} required /></label>
+        <p className="muted small">{entry === 'create' ? '4〜64文字で決めて、チームのメンバーに伝えてください。' : 'チームのメンバーから教わった合言葉を入力してください。'}</p>
+        <button className="primary" disabled={busy || !hasCloudConfig}>{busy ? '確認中…' : entry === 'create' ? 'この合言葉で作成' : '参加する'}</button>
+      </form>
+      {!hasCloudConfig && <section className="panel stack"><p>管理者が保存先を準備しています。</p>{import.meta.env.DEV && <><button disabled={busy} onClick={() => { void startLocal(); }}>この端末で試す</button><p className="muted small">試用データはこのブラウザだけに保存されます。</p></>}</section>}
+    </>}
     {error && <p className="error" role="alert">{error}</p>}
   </main>;
 }
 
 function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Repository; onLogout: () => Promise<void>; updateAvailable: boolean; applyUpdate: () => void }) {
+  const viewKey = `basketball-current-game:${repo.scope}`;
   const [players, setPlayers] = useState<Player[]>([]);
   const [games, setGames] = useState<Game[]>([]);
   const [limit, setLimit] = useState(30);
@@ -222,20 +225,20 @@ function NewGame({ players, busy, back, register, create }: { players: Player[];
   </form></>;
 }
 
-function readDraft(gameId: string): Draft | null {
-  try { const value = JSON.parse(sessionStorage.getItem(draftKey) ?? 'null') as Draft | null; return value?.gameId === gameId ? value : null; } catch { return null; }
+function readDraft(gameId: string, scope: string): Draft | null {
+  try { const value = JSON.parse(sessionStorage.getItem(`${draftKey}:${scope}`) ?? 'null') as Draft | null; return value?.gameId === gameId ? value : null; } catch { return null; }
 }
 function GameScreen({ game, repo, now, busy, run, back }: { game: Game; repo: Repository; now: number; busy: boolean; run: Runner; back: () => void }) {
   const [plays, setPlays] = useState<Play[]>([]);
-  const [draft, setDraft] = useState<Draft | null>(() => readDraft(game.id));
+  const [draft, setDraft] = useState<Draft | null>(() => readDraft(game.id, repo.scope));
   const [editing, setEditing] = useState<Play | null>(null);
   const [confirm, setConfirm] = useState<'quarter' | 'finish' | null>(null);
   const [showAll, setShowAll] = useState(game.status === 'finished');
   const captureLock = useRef(false);
   useEffect(() => repo.watchPlays(game.id, setPlays), [repo, game.id]);
   useEffect(() => {
-    if (draft) sessionStorage.setItem(draftKey, JSON.stringify(draft)); else sessionStorage.removeItem(draftKey);
-  }, [draft]);
+    if (draft) sessionStorage.setItem(`${draftKey}:${repo.scope}`, JSON.stringify(draft)); else sessionStorage.removeItem(`${draftKey}:${repo.scope}`);
+  }, [draft, repo.scope]);
   const q = game.quarters.at(-1);
   const visible = plays.filter(p => !p.cancelled).sort((a, b) => a.quarter - b.quarter || a.elapsedMs - b.elapsedMs || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   const last = [...visible].sort((a, b) => b.createdAt - a.createdAt).at(0);

@@ -5,15 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:emulator": "vite --host 127.0.0.1 --mode emulator",
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-basketball-record",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",
-    "setup:team": "node scripts/link-team.mjs",
+    "setup:auth": "node scripts/provision-team-auth.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-basketball-record \"vitest run --config vitest.rules.config.ts\""
   },
   "dependencies": {
+    "@google-cloud/firestore": "^9.4.0",
+    "@vercel/oidc": "^3.5.0",
     "firebase": "^13.1.0",
+    "firebase-admin": "^14.5.0",
+    "google-auth-library": "^11.3.2",
     "idb": "^8.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -34,6 +40,10 @@
     "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.0.5"
   },
-  "overrides": { "@grpc/grpc-js": "^1.14.7" },
-  "engines": { "node": "24.x" }
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.7"
+  },
+  "engines": {
+    "node": "24.x"
+  }
 }
