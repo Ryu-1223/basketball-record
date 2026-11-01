@@ -23,8 +23,8 @@ describe('クラウド送信待ちの復旧', () => {
     const repo = await createCloudRepository(uid, 'queue-test');
     let state: SyncState = { pending: 0, error: null, fromCache: false };
     repo.watchSync(value => { state = value; });
-    const play: Play = { id: 'record-to-recover', gameId: 'game', quarter: 1, elapsedMs: 1234, playerId: 'p7', action: 'rebound', shot: null, createdAt: 1, updatedAt: 1, cancelled: false };
-    await repo.savePlay(play);
+    const play: Play = { id: 'record-to-recover', gameId: 'game', quarter: 1, elapsedMs: 1234, playerId: 'p7', action: 'foul', details: { code: 'P', penalty: '2', countsTeam: true }, shot: null, createdAt: 1, updatedAt: 1, cancelled: false };
+    await repo.savePlays([play]);
     await expect.poll(() => state.error).not.toBeNull();
     expect(state.pending).toBe(1);
     await repo.close();

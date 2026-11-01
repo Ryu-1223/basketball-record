@@ -119,6 +119,15 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
     savePlayer: value => save(`${teamPath}/players/${value.id}`, value),
     saveGame: value => save(`${teamPath}/games/${value.id}`, value),
     savePlay: value => save(`${teamPath}/games/${value.gameId}/plays/${value.id}`, value),
+    savePlays: async values => {
+      // Persist the entire reorder locally before starting any network writes.
+      const entries = values.map(value => ({ path: `${teamPath}/games/${value.gameId}/plays/${value.id}`, value, version: crypto.randomUUID() }));
+      const tx = outbox.transaction('writes', 'readwrite');
+      for (const entry of entries) void tx.store.put(entry);
+      await tx.done;
+      for (const entry of entries) pending.add(entry.path);
+      notify(); for (const entry of entries) void process(entry.path);
+    },
     close: async () => {
       closed = true; stops.forEach(stop => stop()); syncListeners.clear();
       window.removeEventListener('online', online); outbox.close();

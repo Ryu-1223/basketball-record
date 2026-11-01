@@ -82,6 +82,8 @@ describe('マネージャーの記録操作', () => {
     await user.click(await screen.findByRole('button', { name: '試合を終了する' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '試合を終了する' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'シュート決' })).toBeNull());
+    expect(screen.getByRole('button', { name: 'PDFを保存' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '選手別成績' }));
     expect(screen.getByText('試合結果')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '相手の得点' }));
     expect(screen.getByRole('row', { name: /00 1 0 1 3/ })).toBeTruthy();

@@ -3,6 +3,8 @@ import { afterAll, beforeAll, describe, it } from 'vitest';
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { collection, doc, getDoc, getDocs, getDocsFromCache, setDoc, updateDoc, deleteDoc, disableNetwork, enableNetwork } from 'firebase/firestore';
 
+import { newSheet } from '../src/to';
+
 let environment: RulesTestEnvironment;
 const game = { id: 'game', opponent: '相手校', date: '2026-11-01', roster: [{ id: 'p7', name: '田中', number: '7' }], quarters: [{ number: 1, startedAt: 1000, endedAt: null }], status: 'running', createdAt: 1, updatedAt: 1 };
 const play = { id: 'play', gameId: 'game', quarter: 1, elapsedMs: 5000, playerId: 'p7', action: 'made', shot: '3', createdAt: 1, updatedAt: 1, cancelled: false };
@@ -36,6 +38,22 @@ describe('部活のアクセス制御', () => {
     await assertFails(setDoc(ref, { ...play, id: 'opponent', side: 'opponent', playerId: '7', action: 'miss' }));
     await assertSucceeds(updateDoc(doc(db, 'teams/basketball'), { name: '新しい名前' }));
     await assertFails(updateDoc(doc(db, 'teams/basketball'), { passphrase: 'changed' }));
+  });
+  it('TO記録・帳票情報を保存し、不正な残り時間やコーチのチームFを拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const path = 'teams/basketball/games/to-game';
+    await assertSucceeds(setDoc(doc(db, path), { ...game, id: 'to-game', sheet: newSheet('さくら中') }));
+    const ref = doc(db, `${path}/plays/to-play`);
+    const base = { ...play, gameId: 'to-game', id: 'to-play', shot: null };
+    await assertSucceeds(setDoc(ref, { ...base, action: 'foul', details: { code: 'P', penalty: '2', countsTeam: true } }));
+    await assertSucceeds(setDoc(ref, { ...base, action: 'entry', side: 'opponent', playerId: '00', details: {} }));
+    await assertSucceeds(setDoc(ref, { ...base, action: 'timeout', playerId: '@team', details: { remainingSec: 224 } }));
+    await assertFails(setDoc(ref, { ...base, action: 'timeout', playerId: '@team', details: { remainingSec: 481 } }));
+    await assertFails(setDoc(ref, { ...base, action: 'foul', playerId: '@coach', details: { code: 'C', penalty: '1', countsTeam: true } }));
+    await assertFails(setDoc(ref, { ...base, action: 'foul', details: { code: 'INVALID', penalty: '', countsTeam: false } }));
+    await assertSucceeds(updateDoc(doc(db, path), { status: 'interval' }));
+    await assertSucceeds(setDoc(ref, { ...base, quarter: 2, action: 'foul', details: { code: 'P', penalty: '', countsTeam: true } }));
+    await assertFails(setDoc(ref, { ...base, quarter: 2, action: 'entry', details: {} }));
   });
   it('自分でアクセス権を取得できず、他の部活も読めない', async () => {
     const db = environment.authenticatedContext('outsider').firestore();

@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
       navigateFallback: 'index.html',
       navigateFallbackDenylist: [/^\/api\//],
       cleanupOutdatedCaches: true,
+      runtimeCaching: [{ urlPattern: /\/fonts\/NotoSansJP\.ttf$/, handler: 'CacheFirst', options: { cacheName: 'sheet-font-v1', cacheableResponse: { statuses: [200] }, expiration: { maxEntries: 1, maxAgeSeconds: 31536000 } } }],
       // 新版は裏で有効にする。開いている試合画面は自動再読み込みせず、次の再読み込みで新しい版に切り替わる。
       skipWaiting: true,
       clientsClaim: false,

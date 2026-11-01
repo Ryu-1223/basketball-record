@@ -129,3 +129,26 @@ th, td { border-bottom: 1px solid #d8dfd9; padding: 10px 5px; text-align: right;
 th:first-child { text-align: left; overflow-wrap: anywhere; }
 .score { font-size: 18px; font-weight: bold; text-align: center; overflow-wrap: anywhere; }
 .opponent-action { margin-bottom: 16px; border-width: 2px; }
+@font-face { font-family: SheetJP; src: url('/fonts/NotoSansJP.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+.sheet-player { border: 1px solid var(--line); padding: 12px; border-radius: 4px; display: grid; gap: 8px; }
+.inline-check { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.inline-check input { width: 20px; height: 20px; min-height: 20px; flex-shrink: 0; }
+.to-actions { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin: 16px 0; }
+.to-actions button { padding: 10px 4px; font-size: 14px; }
+.sheet-pages { overflow-x: auto; }
+.sheet-paper { width: 100%; margin: 16px 0; background: white; border: 1px solid var(--line); }
+.sheet-paper svg { display: block; width: 100%; height: auto; }
+.sheet-pages.zoomed .sheet-paper { width: 794px; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.play-list li { flex-wrap: wrap; }
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  body, .shell { margin: 0 !important; padding: 0 !important; max-width: none !important; background: white !important; }
+  body * { visibility: hidden; }
+  .sheet-pages, .sheet-pages * { visibility: visible; }
+  .sheet-pages { position: absolute; top: 0; left: 0; overflow: visible; width: 210mm; }
+  .sheet-paper, .sheet-pages.zoomed .sheet-paper { border: 0; margin: 0; width: 210mm; height: 297mm; break-after: page; break-inside: avoid; }
+  .sheet-paper:last-child { break-after: auto; }
+  .sheet-paper svg { width: 210mm; height: 297mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .no-print { display: none !important; }
+}

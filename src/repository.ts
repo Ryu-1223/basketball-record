@@ -14,6 +14,7 @@ export interface Repository {
   savePlayer: (player: Player) => Promise<void>;
   saveGame: (game: Game) => Promise<void>;
   savePlay: (play: Play) => Promise<void>;
+  savePlays: (plays: Play[]) => Promise<void>;
   close: () => Promise<void>;
 }
 

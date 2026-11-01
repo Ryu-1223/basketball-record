@@ -1,10 +1,11 @@
+import type { SheetInfo, ToDetails, ToAction } from './to';
 export type Player = { id: string; name: string; number: string; active: boolean };
 export type RosterPlayer = Pick<Player, 'id' | 'name' | 'number'>;
 export type Quarter = { number: number; startedAt: number; endedAt: number | null };
 export type Game = {
   id: string; opponent: string; date: string; roster: RosterPlayer[];
   status: 'ready' | 'running' | 'interval' | 'finished';
-  quarters: Quarter[]; createdAt: number; updatedAt: number; opponentTracking?: boolean;
+  quarters: Quarter[]; createdAt: number; updatedAt: number; opponentTracking?: boolean; sheet?: SheetInfo;
 };
 export const actionLabels = {
   miss: 'シュート外', made: 'シュート決', rebound: 'リバウンド', steal: 'パスカット',
@@ -13,10 +14,12 @@ export type Action = keyof typeof actionLabels;
 export type Shot = '2' | '3' | 'ft';
 export type Play = {
   id: string; gameId: string; quarter: number; elapsedMs: number;
-  playerId: string; action: Action; shot: Shot | null;
+  playerId: string; action: Action | ToAction; shot: Shot | null;
   createdAt: number; updatedAt: number; cancelled: boolean; side?: 'opponent';
+  details?: ToDetails;
+  order?: number;
 };
-export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'action' | 'createdAt'> & { playerId?: string };
+export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string };
 
 export function formatTime(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -25,14 +28,19 @@ export function formatTime(ms: number) {
 export function elapsed(quarter: Quarter | undefined, now: number) {
   return quarter ? Math.max(0, (quarter.endedAt ?? now) - quarter.startedAt) : 0;
 }
-export function isShot(action: Action) { return action === 'made' || action === 'miss'; }
-export function playLabel(play: Pick<Play, 'action' | 'shot'>) {
+export function isShot(action: Play['action']) { return action === 'made' || action === 'miss'; }
+export function playLabel(play: Pick<Play, 'action' | 'shot' | 'details'>) {
+  if (play.action === 'foul') return `ファウル ${play.details?.code ?? ''}${play.details?.penalty ?? ''}${play.details?.note ? ` (${play.details.note})` : ''}`;
+  if (play.action === 'timeout') return `タイムアウト${play.details?.remainingSec != null ? `・残り${formatTime(play.details.remainingSec * 1000)}` : '・時間未記入'}`;
+  if (play.action === 'entry') return '初出場';
   if (!isShot(play.action)) return actionLabels[play.action];
   return `${play.shot === 'ft' ? 'フリースロー' : `${play.shot}点シュート`}${play.action === 'made' ? '成功' : '失敗'}`;
 }
 export function sortPlayers<T extends RosterPlayer>(players: T[]) {
-  return [...players].sort((a, b) => Number(a.number) - Number(b.number) || a.number.localeCompare(b.number));
+  return [...players].sort((a, b) => numberOrder(a.number) - numberOrder(b.number));
 }
+export function numberOrder(number: string) { return number === '00' ? -1 : Number(number); }
+export function quarterLabel(number: number) { return number <= 4 ? `第${number}Q` : `延長${number - 4}`; }
 export function validatePlayer(player: Player, others: Player[]) {
   if (!player.name.trim() || player.name.trim().length > 40) throw new Error('名前は1〜40文字で入力してください。');
   if (!/^(?:[0-9]|[1-9][0-9]|00)$/.test(player.number)) throw new Error('背番号は0〜99、または00で入力してください。');
@@ -51,6 +59,7 @@ export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' 
     q.endedAt = null; next.status = 'running';
   } else if (command === 'finish' && game.status === 'interval') {
     next.status = 'finished';
+    if (next.sheet && !next.sheet.endTime) next.sheet.endTime = new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
   } else throw new Error('この操作は現在の試合状態では行えません。');
   next.updatedAt = now;
   return next;
