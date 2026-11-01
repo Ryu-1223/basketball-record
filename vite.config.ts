@@ -26,6 +26,9 @@ export default defineConfig(({ mode }) => {
       navigateFallback: 'index.html',
       navigateFallbackDenylist: [/^\/api\//],
       cleanupOutdatedCaches: true,
+      // 新版は裏で有効にする。開いている試合画面は自動再読み込みせず、次の再読み込みで新しい版に切り替わる。
+      skipWaiting: true,
+      clientsClaim: false,
       // Firebaseの応答や認証情報はService Workerでキャッシュしない。
     },
   })],
