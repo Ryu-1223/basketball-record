@@ -75,7 +75,11 @@ export async function createCloudRepository(uid: string): Promise<Repository & {
       }
       if (!entry) pending.delete(path);
     } catch (error) { errors.set(path, readableError(error)); }
-    finally { processing.delete(path); notify(); }
+    finally {
+      processing.delete(path); notify();
+      // 同じ記録の更新が送信完了と重なった場合も、新しい版を取り残さない。
+      if (!closed && pending.has(path) && !errors.has(path)) void process(path);
+    }
   };
   const retry = () => { [...pending].forEach(path => { void process(path); }); };
   const save = async (path: string, value: Player | Game | Play) => {

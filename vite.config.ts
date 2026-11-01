@@ -20,6 +20,13 @@ export default defineConfig({
       // Firebaseの応答や認証情報はService Workerでキャッシュしない。
     },
   })],
-  build: { target: ['es2022', 'safari16'] },
+  build: {
+    target: ['es2022', 'safari16'],
+    rolldownOptions: { output: { codeSplitting: { groups: [
+      { name: 'firebase-auth', test: /node_modules[\\/]@firebase[\\/]auth/ },
+      { name: 'firebase-data', test: /node_modules[\\/]@firebase[\\/]firestore/ },
+      { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+    ] } } },
+  },
   test: { environment: 'jsdom', include: ['src/**/*.test.{ts,tsx}'], restoreMocks: true },
 });

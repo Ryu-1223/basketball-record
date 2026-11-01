@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",
+    "setup:team": "node scripts/link-team.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-basketball-record \"vitest run --config vitest.rules.config.ts\""
   },
   "dependencies": {

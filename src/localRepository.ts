@@ -9,14 +9,16 @@ export async function createLocalRepository(name = 'basketball-record-local'): P
     database.createObjectStore('plays', { keyPath: 'id' });
   } });
   const watchers = new Set<() => void>();
+  const syncWatchers = new Set<(value: SyncState) => void>();
   let sync: SyncState = { pending: 0, error: null, fromCache: false };
   const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(name) : null;
-  const notify = () => watchers.forEach(cb => cb());
+  const notify = () => { watchers.forEach(cb => cb()); syncWatchers.forEach(cb => cb(sync)); };
   if (channel) channel.onmessage = notify;
   const watch = <T,>(read: () => Promise<T>, cb: (value: T) => void) => {
     let active = true;
     const refresh = () => { void read().then(value => { if (active) cb(value); }).catch(error => {
-      sync = { ...sync, error: readableError(error) }; notify();
+      if (!active) return;
+      sync = { ...sync, error: readableError(error) }; syncWatchers.forEach(cb => cb(sync));
     }); };
     watchers.add(refresh); refresh();
     return () => { active = false; watchers.delete(refresh); };
@@ -32,8 +34,8 @@ export async function createLocalRepository(name = 'basketball-record-local'): P
     watchPlayers: cb => watch(() => db.getAll('players') as Promise<Player[]>, cb),
     watchGames: (limit, cb) => watch(async () => ((await db.getAll('games')) as Game[]).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).slice(0, limit), cb),
     watchPlays: (gameId, cb) => watch(async () => ((await db.getAll('plays')) as Play[]).filter(p => p.gameId === gameId), cb),
-    watchSync: cb => { const fn = () => cb(sync); watchers.add(fn); fn(); return () => { watchers.delete(fn); }; },
+    watchSync: cb => { syncWatchers.add(cb); cb(sync); return () => { syncWatchers.delete(cb); }; },
     savePlayer: value => save('players', value), saveGame: value => save('games', value), savePlay: value => save('plays', value),
-    close: async () => { watchers.clear(); channel?.close(); db.close(); },
+    close: async () => { watchers.clear(); syncWatchers.clear(); channel?.close(); db.close(); },
   };
 }

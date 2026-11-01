@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, it } from 'vitest';
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, getDocsFromCache, setDoc, updateDoc, deleteDoc, disableNetwork, enableNetwork } from 'firebase/firestore';
 
 let environment: RulesTestEnvironment;
 const game = { id: 'game', opponent: '相手校', date: '2026-11-01', roster: [{ id: 'p7', name: '田中', number: '7' }], quarters: [{ number: 1, startedAt: 1000, endedAt: null }], status: 'running', createdAt: 1, updatedAt: 1 };
@@ -40,5 +40,26 @@ describe('部活のアクセス制御', () => {
     await assertFails(setDoc(ref, { ...play, id: 'invalid', elapsedMs: -1 }));
     await assertFails(updateDoc(doc(db, 'teams/basketball/games/game'), { roster: [] }));
     await assertFails(deleteDoc(doc(db, 'teams/basketball/games/game')));
+  });
+  it('通信断中の20件を復帰後に別の利用端末から重複なく取得できる', async () => {
+    const db = environment.authenticatedContext('team-user').firestore();
+    const path = 'teams/basketball/games/offline-game';
+    await setDoc(doc(db, path), { ...game, id: 'offline-game' });
+    await disableNetwork(db);
+    const writes = Array.from({ length: 20 }, (_, i) => setDoc(doc(db, `${path}/plays/play-${i}`), { ...play, id: `play-${i}`, gameId: 'offline-game' }));
+    // SDKのローカル反映を待つ。サーバー応答はまだ待たない。
+    const cached = await getDocsFromCache(collection(db, `${path}/plays`));
+    if (cached.size !== 20) throw new Error(`端末キャッシュの件数が一致しません: ${cached.size}`);
+    await enableNetwork(db);
+    await Promise.all(writes);
+    await setDoc(doc(db, `${path}/plays/play-0`), { ...play, id: 'play-0', gameId: 'offline-game' });
+    const reader = environment.authenticatedContext('team-user').firestore();
+    const result = await getDocs(collection(reader, `${path}/plays`));
+    if (result.size !== 20) throw new Error(`同期後の件数が一致しません: ${result.size}`);
+  });
+  it('無効化した部活アカウントはアクセスできない', async () => {
+    await environment.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'teams/basketball/members/disabled-user'), { enabled: false }));
+    const db = environment.authenticatedContext('disabled-user').firestore();
+    await assertFails(getDoc(doc(db, 'teams/basketball/games/game')));
   });
 });
