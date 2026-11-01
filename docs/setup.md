@@ -9,7 +9,9 @@
 - FirestoreのリージョンはCLI初期作成の既定値 `nam5`、Standard edition、無料枠対象です。
 - 共通アカウントと合言葉の設定は未実施。
 - このPCの `.env.local` にはWebアプリの接続情報を設定済みです。残りは共通アカウントの接続です。
-- Vercelの `tera-hzs-projects/basketball-record` プロジェクトを作成し、GitHubリポジトリとの接続を完了しています。Firebase接続用の環境変数5つも本番・プレビュー・開発に登録済みです。共通ユーザーの接続と公開デプロイが残っています。
+- Vercelの `tera-hzs-projects/basketball-record` プロジェクトを作成し、GitHubリポジトリとの接続を完了しています。Firebase接続用の環境変数5つも本番・プレビュー・開発に登録済みです。
+- [公開URL](https://basketball-record.vercel.app): 初回の自動デプロイが成功し、ページ表示まで確認済みです。現在は共通ユーザー未設定のため「共有の設定を準備中です」と表示されます。
+- 残りは共通ユーザーの作成、UIDの接続、`VITE_TEAM_EMAIL` のVercel登録、再デプロイと本番ログイン確認です。
 
 ## 1. 合言葉を設定する
 
@@ -49,7 +51,7 @@ npm run setup:team -- --uid=作成したユーザーのUID
 1. Vercelで **Add New → Project** を開き、`Ryu-1223/basketball-record` をImportします。
 2. FrameworkはVite、Build Commandは `npm run build`、Output Directoryは `dist`。Node.jsは24系を選びます。
 3. Environment Variablesに上記6つの環境変数を登録します。合言葉は登録しません。`VITE_USE_EMULATORS` は本番に設定しません。
-4. 開発ブランチ `codex/basketball-app` でプレビューを確認します。初期mainはREADMEのみなので、アプリを本番公開する前に開発ブランチの内容をmainへ反映します。
+4. 開発ブランチ `codex/basketball-app` からの初回自動デプロイは公開済みです。初期mainはREADMEのみなので、正式運用へ移す際は開発ブランチの内容をmainへ反映し、VercelのGit設定でもProduction Branchがmainであることを確認します。
 5. Firebase Authenticationの **設定 → 承認済みドメイン** にVercelの公開ホスト名を追加します。必要ならプレビューで使う固定ホスト名、ローカル用の `localhost`、`127.0.0.1` も追加します。
 6. 公開URLでログイン、選手追加、試合開始、記録、Q切替、試合終了、履歴表示を確認します。
 
