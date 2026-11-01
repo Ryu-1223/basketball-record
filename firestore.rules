@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function member(team) {
+      return request.auth != null &&
+        request.auth.token.teamId == team &&
+        exists(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)).data.enabled == true;
+    }
+    function text(value, max) { return value is string && value.size() > 0 && value.size() <= max; }
+    function validPlayer(id) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['id', 'name', 'number', 'active']) &&
+        d.id == id && text(d.name, 40) && d.number is string &&
+        d.number.matches('([0-9]|[1-9][0-9]|00)') && d.active is bool;
+    }
+    function validGame(id) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['id', 'opponent', 'date', 'roster', 'status', 'quarters', 'createdAt', 'updatedAt']) &&
+        d.id == id && text(d.opponent, 80) && d.date is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') &&
+        d.status in ['ready', 'running', 'interval', 'finished'] &&
+        d.roster is list && d.roster.size() > 0 && d.roster.size() <= 40 &&
+        d.quarters is list && d.quarters.size() <= 99 &&
+        d.createdAt is number && d.updatedAt is number;
+    }
+    function validPlay(team, game, id) {
+      let d = request.resource.data;
+      let g = get(/databases/$(database)/documents/teams/$(team)/games/$(game)).data;
+      return d.keys().hasOnly(['id', 'gameId', 'quarter', 'elapsedMs', 'playerId', 'action', 'shot', 'createdAt', 'updatedAt', 'cancelled']) &&
+        d.id == id && d.gameId == game && text(d.playerId, 128) &&
+        d.quarter is int && d.quarter >= 1 && d.quarter <= g.quarters.size() &&
+        d.elapsedMs is number && d.elapsedMs >= 0 &&
+        d.action in ['made', 'miss', 'rebound', 'steal'] &&
+        ((d.action in ['made', 'miss'] && d.shot in ['2', '3', 'ft']) ||
+         (d.action in ['rebound', 'steal'] && d.shot == null)) &&
+        d.cancelled is bool && d.createdAt is number && d.updatedAt is number;
+    }
+    match /teams/{team} {
+      allow read: if member(team);
+      allow write: if false;
+      match /members/{uid} {
+        allow read: if request.auth != null && request.auth.token.teamId == team && request.auth.uid == uid;
+        allow write: if false;
+      }
+      match /players/{id} {
+        allow read: if member(team);
+        allow create, update: if member(team) && validPlayer(id);
+        allow delete: if false;
+      }
+      match /games/{game} {
+        allow read: if member(team);
+        allow create: if member(team) && validGame(game);
+        allow update: if member(team) && validGame(game) && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.roster == resource.data.roster;
+        allow delete: if false;
+        match /plays/{id} {
+          allow read: if member(team);
+          allow create: if member(team) && validPlay(team, game, id);
+          allow update: if member(team) && validPlay(team, game, id) && request.resource.data.createdAt == resource.data.createdAt;
+          allow delete: if false;
+        }
+      }
+    }
+  }
+}
