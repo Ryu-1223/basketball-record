@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.vercel/
+.firebase/
+*-debug.log*
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+.tools/

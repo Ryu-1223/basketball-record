@@ -1,0 +1,65 @@
+import 'fake-indexeddb/auto';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { deleteDB } from 'idb';
+
+vi.mock('./firebaseRepository', () => ({ hasCloudConfig: false }));
+vi.mock('virtual:pwa-register', () => ({ registerSW: () => () => Promise.resolve() }));
+import App from './App';
+
+// jsdomはネイティブdialogの開閉を提供しない。画面操作の検証に必要な開閉だけ補う。
+HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.restoreAllMocks(); });
+describe('マネージャーの記録操作', () => {
+  it('選手登録から試合終了・履歴訂正まで操作でき、シュート時刻は最初のタップ時点で確定する', async () => {
+    await deleteDB('basketball-record-local');
+    const user = userEvent.setup();
+    let now = 1_800_000_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'この端末で試す' }));
+    await user.click(await screen.findByRole('button', { name: '選手登録' }));
+    await user.type(screen.getByLabelText('背番号'), '7');
+    await user.type(screen.getByLabelText('名前'), '田中');
+    await user.click(screen.getByRole('button', { name: '選手を追加' }));
+    await screen.findByText('田中');
+    await user.click(screen.getByRole('button', { name: '← 試合一覧' }));
+    await user.click(screen.getByRole('button', { name: '新しい試合' }));
+    await user.type(screen.getByLabelText('対戦相手'), 'テスト中学校');
+    await user.click(screen.getByRole('button', { name: 'このメンバーで準備する' }));
+    await user.click(await screen.findByRole('button', { name: '試合開始' }));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'シュート決' }) as HTMLButtonElement).disabled).toBe(false));
+    now += 332_000;
+    await user.click(screen.getByRole('button', { name: 'シュート決' }));
+    const playerDialog = screen.getByRole('dialog');
+    expect(within(playerDialog).getByText('第1Q・05:32')).toBeTruthy();
+    now += 5_000;
+    await user.click(within(playerDialog).getByRole('button', { name: /7\s*田中/ }));
+    await user.dblClick(within(playerDialog).getByRole('button', { name: '3点' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const list = screen.getByRole('list');
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(1));
+    expect(within(list).getByText('05:32')).toBeTruthy();
+    expect(within(list).getByText('3点シュート成功')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'このQを終了' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'このQを終了する' }));
+    await screen.findByRole('button', { name: '第2Qを開始' });
+    now += 120_000;
+    await user.click(screen.getByRole('button', { name: '第2Qを開始' }));
+    await waitFor(() => expect(screen.getByRole('timer').textContent).toBe('00:00'));
+    await user.click(screen.getByRole('button', { name: 'このQを終了' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'このQを終了する' }));
+    await user.click(await screen.findByRole('button', { name: '試合を終了する' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '試合を終了する' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'シュート決' })).toBeNull());
+    await user.click(screen.getByRole('button', { name: '訂正' }));
+    await user.selectOptions(screen.getByLabelText('シュート'), 'ft');
+    await user.click(screen.getByRole('button', { name: '訂正を保存' }));
+    await waitFor(() => expect(within(screen.getByRole('list')).getByText('フリースロー成功')).toBeTruthy());
+    await user.click(screen.getByRole('button', { name: '← 試合一覧' }));
+    expect(await screen.findByRole('button', { name: /テスト中学校/ })).toBeTruthy();
+  });
+});
