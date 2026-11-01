@@ -17,7 +17,10 @@ if (!account?.tokens?.refresh_token) throw new Error('先に npx firebase login 
 const credential = await getAccessToken(account.tokens.refresh_token, ['https://www.googleapis.com/auth/cloud-platform']);
 async function request(url, method = 'GET', body, allowMissing = false) {
   const response = await fetch(url, { method, headers: { Authorization: `Bearer ${credential.access_token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const data = await response.json();
+  const raw = await response.text();
+  let data;
+  try { data = raw ? JSON.parse(raw) : {}; }
+  catch { throw new Error(`Google設定エラー ${response.status}: ${method} ${new URL(url).pathname}`); }
   if (allowMissing && response.status === 404) return null;
   if (!response.ok) throw new Error(`Google設定エラー ${response.status}: ${data.error?.message ?? 'unknown'}`);
   return data;
@@ -67,10 +70,10 @@ function addBinding(policy, role, member) {
   if (!binding.members.includes(member)) binding.members.push(member);
 }
 const projectPolicyUrl = `https://cloudresourcemanager.googleapis.com/v1/projects/${project}`;
-const projectPolicy = await request(`${projectPolicyUrl}:getIamPolicy`, 'POST', {});
+const projectPolicy = await request(`${projectPolicyUrl}:getIamPolicy`, 'POST', { options: { requestedPolicyVersion: 3 } });
 addBinding(projectPolicy, 'roles/datastore.user', `serviceAccount:${email}`);
 await request(`${projectPolicyUrl}:setIamPolicy`, 'POST', { policy: projectPolicy });
-const saPolicy = await request(`${serviceAccountUrl}:getIamPolicy`);
+const saPolicy = await request(`${serviceAccountUrl}:getIamPolicy?options.requestedPolicyVersion=3`, 'POST');
 addBinding(saPolicy, 'roles/iam.workloadIdentityUser', `principalSet://iam.googleapis.com/${poolName}/attribute.project_id/${vercel.projectId}`);
 addBinding(saPolicy, 'roles/iam.serviceAccountTokenCreator', `serviceAccount:${email}`);
 await request(`${serviceAccountUrl}:setIamPolicy`, 'POST', { policy: saPolicy });
