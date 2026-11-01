@@ -3,7 +3,7 @@ import { getAuth, connectAuthEmulator, signInWithCustomToken, signOut, type Auth
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
   collection, doc, onSnapshot, orderBy, query, limit, setDoc, terminate, clearIndexedDbPersistence,
-  type Firestore, type DocumentData, type Query,
+  type Firestore, type DocumentData, type Query, updateDoc,
 } from 'firebase/firestore';
 import { openDB } from 'idb';
 import type { Game, Play, Player } from './domain';
@@ -26,11 +26,11 @@ export function getServices(): Services {
   services = { auth, db };
   return services;
 }
-export async function accessTeam(action: TeamAction, input: string) {
+export async function accessTeam(action: TeamAction, input: string, teamName?: string) {
   const passphrase = normalizePassphrase(input);
   const response = await fetch('/api/team', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, passphrase }), cache: 'no-store', signal: AbortSignal.timeout(25_000),
+    body: JSON.stringify({ action, passphrase, teamName }), cache: 'no-store', signal: AbortSignal.timeout(25_000),
   });
   const data = await response.json().catch(() => null) as { token?: string; error?: string } | null;
   if (!response.ok || !data?.token) throw new Error(data?.error ?? 'チームに接続できません。通信を確認してもう一度お試しください。');
@@ -110,6 +110,8 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
   retry();
   return {
     mode: 'cloud', scope: teamId, retry,
+    watchTeam: cb => onSnapshot(doc(db, teamPath), snap => cb(snap.data() as { name?: string; passphrase?: string })),
+    saveTeamName: async name => { await updateDoc(doc(db, teamPath), { name }); },
     watchPlayers: cb => watch('players', collection(db, `${teamPath}/players`), cb),
     watchGames: (count, cb) => watch('games', query(collection(db, `${teamPath}/games`), orderBy('date', 'desc'), limit(count)), cb),
     watchPlays: (gameId, cb) => watch(`plays:${gameId}`, collection(db, `${teamPath}/games/${gameId}/plays`), cb),

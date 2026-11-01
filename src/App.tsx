@@ -5,6 +5,7 @@ import { createLocalRepository } from './localRepository';
 import { createCloudRepository, getServices, hasCloudConfig, accessTeam, logout } from './firebaseRepository';
 import { actionLabels, beginPlay, completePlay, elapsed, formatTime, isShot, localDate, playLabel, sortPlayers, transition, validatePlayer, type Action, type Draft, type Game, type Play, type Player, type Shot } from './domain';
 import { readableError, type Repository, type SyncState } from './repository';
+import { Results, score } from './Results';
 import { teamIdFromUid, type TeamAction } from './team';
 
 const statusLabels = { ready: '開始前', running: '記録中', interval: 'Q間', finished: '終了' };
@@ -27,8 +28,10 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!hasCloudConfig);
   const [error, setError] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  const [teamName, setTeamName] = useState('');
   const [entry, setEntry] = useState<TeamAction | null>(null);
   const entryLock = useRef(false);
+  const composing = useRef(false);
   const [busy, setBusy] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const updateWorker = useRef<((reload?: boolean) => Promise<void>) | null>(null);
@@ -62,10 +65,10 @@ export default function App() {
   }, []);
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); if (entryLock.current || !entry) return;
+    event.preventDefault(); if (composing.current || entryLock.current || !entry) return;
     entryLock.current = true;
     setBusy(true); setError('');
-    try { await accessTeam(entry, passphrase); setPassphrase(''); }
+    try { await accessTeam(entry, passphrase, entry === 'create' ? teamName : undefined); setPassphrase(''); }
     catch (err) { setError(readableError(err)); }
     finally { entryLock.current = false; setBusy(false); }
   }
@@ -84,8 +87,9 @@ export default function App() {
     {!entry ? <div className="entry-actions"><button className="primary" onClick={() => { setEntry('create'); setError(''); }}>チームを作成</button><button onClick={() => { setEntry('join'); setError(''); }}>チームに参加</button></div> : <>
       <button className="quiet back" disabled={busy} onClick={() => { setEntry(null); setPassphrase(''); setError(''); }}>← 戻る</button>
       <h1>{entry === 'create' ? 'チームを作成' : 'チームに参加'}</h1>
-      <form onSubmit={submit} className="panel stack">
-        <label>合言葉<input autoComplete="off" autoCapitalize="none" spellCheck={false} type="password" value={passphrase} onChange={event => setPassphrase(event.target.value)} required /></label>
+      <form onSubmit={submit} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} className="panel stack">
+        {entry === 'create' && <label>チーム名<input value={teamName} onChange={e => setTeamName(e.target.value)} maxLength={80} required placeholder="さくら中学校" /></label>}
+        <label>合言葉<input autoComplete="off" autoCapitalize="none" spellCheck={false} type="text" placeholder="さくらバスケ部" value={passphrase} onChange={event => setPassphrase(event.target.value)} required /></label>
         <p className="muted small">{entry === 'create' ? '4〜64文字で決めて、チームのメンバーに伝えてください。' : 'チームのメンバーから教わった合言葉を入力してください。'}</p>
         <button className="primary" disabled={busy || !hasCloudConfig}>{busy ? '確認中…' : entry === 'create' ? 'この合言葉で作成' : '参加する'}</button>
       </form>
@@ -101,7 +105,10 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
   const [games, setGames] = useState<Game[]>([]);
   const [limit, setLimit] = useState(30);
   const [loaded, setLoaded] = useState(false);
-  const [page, setPage] = useState<'home' | 'players' | 'new' | 'game'>(() => localStorage.getItem(viewKey) ? 'game' : 'home');
+  const [page, setPage] = useState<'home' | 'players' | 'new' | 'game' | 'team'>(() => localStorage.getItem(viewKey) ? 'game' : 'home');
+  const [playerOrigin, setPlayerOrigin] = useState<'home' | 'new'>('home');
+  const [team, setTeam] = useState<{ name?: string; passphrase?: string }>({});
+  const [newMounted, setNewMounted] = useState(false);
   const [gameId, setGameId] = useState<string | null>(() => localStorage.getItem(viewKey));
   const [sync, setSync] = useState<SyncState>({ pending: 0, error: null, fromCache: true });
   const [online, setOnline] = useState(navigator.onLine);
@@ -111,6 +118,7 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
   const [confirmLogout, setConfirmLogout] = useState(false);
   const locked = useRef(false);
 
+  useEffect(() => repo.watchTeam(setTeam), [repo]);
   useEffect(() => repo.watchPlayers(setPlayers), [repo]);
   useEffect(() => repo.watchGames(limit, value => { setGames(value); setLoaded(true); }), [repo, limit]);
   useEffect(() => repo.watchSync(setSync), [repo]);
@@ -133,13 +141,13 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
     catch (err) { setError(readableError(err)); }
     finally { locked.current = false; setBusy(false); }
   }
-  function navigate(next: typeof page) { setPage(next); setError(''); if (next !== 'game') localStorage.removeItem(viewKey); }
+  function navigate(next: typeof page) { if (next === 'new') setNewMounted(true); if (next === 'home') setNewMounted(false); setPage(next); setError(''); if (next !== 'game') localStorage.removeItem(viewKey); }
   function openGame(id: string) { setGameId(id); localStorage.setItem(viewKey, id); navigate('game'); }
   const game = games.find(g => g.id === gameId);
   const recording = games.some(g => g.status === 'running');
 
   return <div className="shell">
-    <header className="app-header"><button className="brand" onClick={() => navigate('home')}>バスケの記録</button><button className="quiet small" onClick={() => setConfirmLogout(true)}>退出</button></header>
+    <header className="app-header"><button className="brand" onClick={() => navigate('home')}>{team.name || 'バスケの記録'}</button><button className="quiet small" onClick={() => navigate('team')}>チーム情報</button><button className="quiet small" onClick={() => setConfirmLogout(true)}>退出</button></header>
     <div className={`sync-bar ${sync.error ? 'problem' : ''}`} role="status">
       <span>{repo.mode === 'local' ? (sync.pending ? 'この端末に保存中…' : 'この端末だけに保存') : sync.error ? '保存を確認してください' : sync.pending ? `未送信 ${sync.pending}件${online ? '・送信中' : '・通信なし'}` : !online ? '通信なし・端末の記録を表示' : sync.fromCache ? '保存先を確認中…' : 'すべて保存済み'}</span>
       {repo.mode === 'local' && <span className="tag">試用</span>}
@@ -149,7 +157,7 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
     <main>
       {page === 'home' && <>
         <div className="page-title"><h1>試合の記録</h1><p className="muted">今日の試合も、これまでの試合も。</p></div>
-        <div className="home-actions"><button className="primary" onClick={() => navigate('new')}>新しい試合</button><button onClick={() => navigate('players')}>選手登録</button></div>
+        <div className="home-actions"><button className="primary" onClick={() => navigate('new')}>新しい試合</button><button onClick={() => { setPlayerOrigin('home'); navigate('players'); }}>選手登録</button></div>
         <h2 className="section-title">試合一覧</h2>
         {!loaded ? <p role="status">読み込み中…</p> : !games.length ? <section className="empty"><p>まだ試合がありません</p><p className="muted">選手を登録して、最初の試合を始めましょう。</p></section> : <div className="game-list">{[...games].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).map(g => <button key={g.id} className="game-card" onClick={() => openGame(g.id)}>
           <span className="row"><span className="muted small">{g.date.replaceAll('-', '/')}</span><span className={`tag ${g.status === 'running' ? 'active' : ''}`}>{statusLabels[g.status]}</span></span>
@@ -157,8 +165,9 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
         </button>)}</div>}
         {games.length >= limit && <button className="full" onClick={() => setLimit(value => value + 30)}>前の試合をもっと見る</button>}
       </>}
-      {page === 'players' && <Players players={players} repo={repo} run={run} busy={busy} back={() => navigate('home')} />}
-      {page === 'new' && <NewGame players={players} busy={busy} back={() => navigate('home')} register={() => navigate('players')} create={g => { void run(async () => { await repo.saveGame(g); openGame(g.id); }); }} />}
+      {page === 'players' && <Players players={players} repo={repo} run={run} busy={busy} back={() => navigate(playerOrigin)} origin={playerOrigin} sync={sync} />}
+      {newMounted && <div hidden={page !== 'new'}><NewGame players={players} busy={busy} back={() => navigate('home')} register={() => { setPlayerOrigin('new'); navigate('players'); }} create={g => { void run(async () => { await repo.saveGame(g); setNewMounted(false); openGame(g.id); }); }} /></div>}
+      {page === 'team' && <TeamInfo team={team} busy={busy} back={() => navigate('home')} save={name => { void run(() => repo.saveTeamName(name)); }} />}
       {page === 'game' && (game ? <GameScreen key={game.id} game={game} repo={repo} now={Date.now()} busy={busy} run={run} back={() => navigate('home')} /> : <section className="panel stack"><p>{loaded ? 'この試合はまだ読み込まれていません。試合一覧から選び直してください。' : '試合を読み込み中…'}</p><button onClick={() => navigate('home')}>試合一覧へ</button></section>)}
     </main>
     {updateAvailable && !recording && sync.pending === 0 && <aside className="update panel"><p>新しい版があります。</p><button onClick={applyUpdate}>更新する</button></aside>}
@@ -173,8 +182,9 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
 type Runner = (action: () => Promise<void>) => Promise<void>;
 function Back({ onClick }: { onClick: () => void }) { return <button className="back quiet" onClick={onClick}>← 試合一覧</button>; }
 
-function Players({ players, repo, run, busy, back }: { players: Player[]; repo: Repository; run: Runner; busy: boolean; back: () => void }) {
+function Players({ players, repo, run, busy, back, origin, sync }: { players: Player[]; repo: Repository; run: Runner; busy: boolean; back: () => void; origin: 'home' | 'new'; sync: SyncState }) {
   const [editing, setEditing] = useState<Player | null>(null);
+  const [saved, setSaved] = useState('');
   const [name, setName] = useState(''); const [number, setNumber] = useState('');
   const input = useRef<HTMLInputElement>(null);
   function reset() { setEditing(null); setName(''); setNumber(''); }
@@ -182,15 +192,17 @@ function Players({ players, repo, run, busy, back }: { players: Player[]; repo: 
     event.preventDefault();
     void run(async () => {
       const player = { id: editing?.id ?? crypto.randomUUID(), name: name.trim(), number: number.trim(), active: true };
-      validatePlayer(player, players); await repo.savePlayer(player); reset(); input.current?.focus();
+      validatePlayer(player, players); await repo.savePlayer(player); setSaved(`${player.number} ${player.name}を登録しました`); reset(); input.current?.focus();
     });
   }
-  return <><Back onClick={back} /><h1>選手登録</h1><p className="muted">次の試合でも、この名簿から選べます。</p>
+  function finish() { if ((name || number) && !window.confirm('入力中の選手はまだ登録されていません。移動しますか？')) return; back(); }
+  return <><Back onClick={finish} /><h1>選手登録</h1><p className="muted">次の試合でも、この名簿から選べます。</p>
     <form className="panel stack" onSubmit={submit}>
       <h2>{editing ? '選手を変更' : '選手を追加'}</h2>
       <div className="player-fields"><label>背番号<input ref={input} inputMode="numeric" maxLength={2} value={number} onChange={e => setNumber(e.target.value)} required placeholder="7" /></label><label>名前<input maxLength={40} value={name} onChange={e => setName(e.target.value)} required placeholder="田中" /></label></div>
       <button className="primary" disabled={busy}>{editing ? '変更を保存' : '選手を追加'}</button>{editing && <button type="button" className="quiet" onClick={reset}>変更をやめる</button>}
     </form>
+    {saved && <p role="status">{saved} {sync.pending ? '（端末に保存済み・共有待ち）' : '（保存済み）'}</p>}
     <h2 className="section-title">登録選手（{players.filter(p => p.active).length}人）</h2>
     {!players.length && <p className="empty">背番号と名前を登録してください。</p>}
     <div className="roster-list">{sortPlayers(players).map(p => <div key={p.id} className={`roster-row ${!p.active ? 'inactive' : ''}`}>
@@ -198,7 +210,7 @@ function Players({ players, repo, run, busy, back }: { players: Player[]; repo: 
       {p.active && <button className="small" onClick={() => { setEditing(p); setName(p.name); setNumber(p.number); input.current?.focus(); }}>変更</button>}
       <button className="quiet small" disabled={busy} onClick={() => { void run(async () => { const next = { ...p, active: !p.active }; validatePlayer(next, players); await repo.savePlayer(next); }); }}>{p.active ? '非表示' : '戻す'}</button>
     </div>)}</div>
-    <p className="muted small">名簿を変更しても、過去の試合の名前・背番号は変わりません。</p>
+    <p className="muted small">名簿を変更しても、過去の試合の名前・背番号は変わりません。</p><button className="primary full" type="button" onClick={finish}>{origin === "new" ? "登録を完了して試合準備へ" : "登録を完了して試合一覧へ"}</button>
   </>;
 }
 
@@ -211,7 +223,7 @@ function NewGame({ players, busy, back, register, create }: { players: Player[];
     event.preventDefault();
     if (!opponent.trim() || !selected.length) return;
     const now = Date.now();
-    create({ id: crypto.randomUUID(), opponent: opponent.trim(), date, roster: active.filter(p => selected.includes(p.id)).map(({ id, name, number }) => ({ id, name, number })), status: 'ready', quarters: [], createdAt: now, updatedAt: now });
+    create({ id: crypto.randomUUID(), opponent: opponent.trim(), date, roster: active.filter(p => selected.includes(p.id)).map(({ id, name, number }) => ({ id, name, number })), status: 'ready', quarters: [], opponentTracking: true, createdAt: now, updatedAt: now });
   }
   return <><Back onClick={back} /><h1>新しい試合</h1><form onSubmit={submit} className="stack">
     <section className="panel stack"><label>試合日<input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label><label>対戦相手<input value={opponent} onChange={e => setOpponent(e.target.value)} maxLength={80} required placeholder="○○中学校" /></label></section>
@@ -221,7 +233,7 @@ function NewGame({ players, busy, back, register, create }: { players: Player[];
         <div className="check-list">{active.map(p => <label className="check-player" key={p.id}><input type="checkbox" checked={selected.includes(p.id)} onChange={e => setSelected(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))} /><strong>{p.number}</strong><span>{p.name}</span></label>)}</div>
       </>}
     </section>
-    <button className="primary" disabled={busy || !selected.some(id => active.some(p => p.id === id))}>このメンバーで準備する</button>
+    <button className="primary" disabled={busy || !selected.some(id => active.some(p => p.id === id))}>このメンバーで確定</button>
   </form></>;
 }
 
@@ -233,6 +245,10 @@ function GameScreen({ game, repo, now, busy, run, back }: { game: Game; repo: Re
   const [draft, setDraft] = useState<Draft | null>(() => readDraft(game.id, repo.scope));
   const [editing, setEditing] = useState<Play | null>(null);
   const [confirm, setConfirm] = useState<'quarter' | 'finish' | null>(null);
+  const [opponentDraft, setOpponentDraft] = useState<Draft | null>(null);
+  const [opponentNumber, setOpponentNumber] = useState('');
+  const [addingNumber, setAddingNumber] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [showAll, setShowAll] = useState(game.status === 'finished');
   const captureLock = useRef(false);
   useEffect(() => repo.watchPlays(game.id, setPlays), [repo, game.id]);
@@ -258,26 +274,35 @@ function GameScreen({ game, repo, now, busy, run, back }: { game: Game; repo: Re
     if (!draft) return;
     void run(async () => { await repo.savePlay(completePlay(game, draft, playerId, shot, Date.now())); setDraft(null); });
   }
+  const opponentNumbers = [...new Set(plays.filter(p => p.side === 'opponent' && !p.cancelled).map(p => p.playerId))].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+  function saveOpponent(shot: Shot) {
+    if (!opponentDraft || !/^(?:[0-9]|[1-9][0-9]|00)$/.test(opponentNumber)) return;
+    void run(async () => { await repo.savePlay({ ...opponentDraft, playerId: opponentNumber, side: 'opponent', shot, cancelled: false, updatedAt: Date.now() }); setOpponentDraft(null); setOpponentNumber(''); setAddingNumber(false); });
+  }
   const displayPlays = showAll ? visible : visible.slice(-5).reverse();
   return <><Back onClick={back} />
     <div className="game-heading"><p className="muted small">{game.date.replaceAll('-', '/')} <span className="tag">{statusLabels[game.status]}</span></p><h1>対 {game.opponent}</h1></div>
-    <section className="clock panel" aria-label="クォーターと経過時間">
-      <div className="clock-top"><strong>{q ? `第${q.number}Q` : '試合開始前'}</strong><span className="muted small">{game.status === 'interval' ? 'Q終了' : game.status === 'finished' ? '試合終了' : '開始から'}</span></div>
+    <p className="score">自チーム {score(visible.filter(p => p.side !== 'opponent'))} − {game.opponentTracking || plays.some(p => p.side === 'opponent') ? score(visible.filter(p => p.side === 'opponent')) : '未記録'} {game.opponent}</p>
+    {game.status === 'finished' && <Results game={game} plays={plays} />}
+    {game.status !== 'finished' && <section className="clock panel" aria-label="クォーターと経過時間">
+      <div className="clock-top"><strong>{q ? `第${q.number}Q` : '試合開始前'}</strong><span className="muted small">{game.status === 'interval' ? 'Q終了' : '開始から'}</span></div>
       <div className="time" role="timer" aria-live="off">{formatTime(elapsed(q, now))}</div>
+      <button className="full opponent-action" disabled={game.status !== 'running' || busy || inconsistentClock} onClick={() => { setOpponentDraft(beginPlay(game, 'made', Date.now())); setOpponentNumber(''); setAddingNumber(false); }}>相手のシュート決</button>
       {game.status === 'ready' && <button className="primary full" disabled={busy} onClick={() => command('start')}>試合開始</button>}
       {game.status === 'running' && <p className="muted small">プレーが止まっても、そのままでOK</p>}
       {game.status === 'interval' && <div className="stack"><button className="primary" disabled={busy} onClick={() => command('next')}>第{(q?.number ?? 0) + 1}Qを開始</button><button className="quiet small" disabled={busy} onClick={() => command('undoEnd')}>Q終了を取り消す</button></div>}
-    </section>
+    </section>}
     {inconsistentClock && <p className="error" role="alert">端末の時刻がQ開始時刻より前になっています。端末の時刻を確認してください。</p>}
     {game.status !== 'finished' && <>
       <div className="action-grid">{(Object.keys(actionLabels) as Action[]).map(action => <button key={action} className={`action action-${action}`} disabled={game.status !== 'running' || busy || inconsistentClock} onClick={() => capture(action)}>{actionLabels[action]}</button>)}</div>
       {game.status === 'ready' && <p className="muted small center">試合開始後に記録できます。</p>}
       <section className="last-play panel"><h2>直前の記録</h2>{last ? <><PlayLine play={last} game={game} /><button className="quiet small" disabled={busy} onClick={() => { void run(() => repo.savePlay({ ...last, cancelled: true, updatedAt: Date.now() })); }}>この記録を取り消す</button></> : <p className="muted">まだ記録がありません。</p>}</section>
-      <div className="quarter-actions">{game.status === 'running' && <button disabled={busy || !!draft || inconsistentClock} onClick={() => setConfirm('quarter')}>このQを終了</button>}{game.status === 'interval' && <button disabled={busy} onClick={() => setConfirm('finish')}>試合を終了する</button>}</div>
+      <div className="quarter-actions">{game.status === 'running' && <button disabled={busy || !!draft || !!opponentDraft || inconsistentClock} onClick={() => setConfirm('quarter')}>このQを終了</button>}{game.status === 'interval' && <button disabled={busy} onClick={() => setConfirm('finish')}>試合を終了する</button>}</div>
     </>}
-    <section className="history"><div className="row"><h2>記録一覧 <span className="muted">{visible.length}件</span></h2>{visible.length > 5 && <button className="quiet small" onClick={() => setShowAll(!showAll)}>{showAll ? '最近の5件' : 'すべて見る'}</button>}</div>
+    {game.status === 'finished' && <button className="full" onClick={() => setShowHistory(!showHistory)}>{showHistory ? '記録一覧を閉じる' : '記録を確認・訂正する'}</button>}
+    {(game.status !== 'finished' || showHistory) && <section className="history"><div className="row"><h2>記録一覧 <span className="muted">{visible.length}件</span></h2>{visible.length > 5 && <button className="quiet small" onClick={() => setShowAll(!showAll)}>{showAll ? '最近の5件' : 'すべて見る'}</button>}</div>
       {!visible.length ? <p className="empty">プレーを記録すると、ここに表示されます。</p> : <ol className="play-list">{displayPlays.map(play => <li key={play.id}><PlayLine play={play} game={game} /><button className="quiet small" onClick={() => setEditing(play)}>訂正</button></li>)}</ol>}
-    </section>
+    </section>}
     <details className="panel team-details"><summary>この試合の選手（{game.roster.length}人）</summary><p>{sortPlayers(game.roster).map(p => `${p.number} ${p.name}`).join(' / ')}</p></details>
     {draft && !alreadySaved && <Dialog title={draft.playerId && isShot(draft.action) ? 'シュートの種類' : '選手を選ぶ'} onClose={() => setDraft(null)}>
       <div className="draft-summary"><strong>{actionLabels[draft.action]}</strong><span>第{draft.quarter}Q・{formatTime(draft.elapsedMs)}</span></div>
@@ -285,6 +310,7 @@ function GameScreen({ game, repo, now, busy, run, back }: { game: Game; repo: Re
       {game.status !== 'running' || draft.quarter !== q?.number ? <div className="error">Qの状態が変わっています。閉じてから記録し直してください。</div> : draft.playerId && isShot(draft.action) ? <div className="stack"><p className="selected-player">{game.roster.find(p => p.id === draft.playerId)?.number} {game.roster.find(p => p.id === draft.playerId)?.name}</p>{(['2', '3', 'ft'] as Shot[]).map(shot => <button key={shot} className="shot-choice" disabled={busy} onClick={() => save(draft.playerId!, shot)}>{shot === 'ft' ? 'フリースロー' : `${shot}点`}</button>)}<button className="quiet" onClick={() => setDraft({ ...draft, playerId: undefined })}>選手を選び直す</button></div> : <div className="player-grid">{sortPlayers(game.roster).map(p => <button key={p.id} disabled={busy} className="player-choice" onClick={() => { if (isShot(draft.action)) setDraft({ ...draft, playerId: p.id }); else save(p.id, null); }}><strong>{p.number}</strong><span>{p.name}</span></button>)}</div>}
       <button className="quiet full cancel" onClick={() => setDraft(null)}>記録せず戻る</button>
     </Dialog>}
+    {opponentDraft && <Dialog title="相手のシュート決" onClose={() => setOpponentDraft(null)}><div className="stack">{opponentNumber ? <><p className="selected-player">背番号 {opponentNumber}</p>{(['2', '3', 'ft'] as Shot[]).map(shot => <button key={shot} disabled={busy} onClick={() => saveOpponent(shot)}>{shot === 'ft' ? 'フリースロー' : `${shot}点`}</button>)}<button onClick={() => setOpponentNumber('')}>背番号を選び直す</button></> : <><p>相手の背番号を選んでください。</p><div className="player-grid">{opponentNumbers.map(n => <button key={n} onClick={() => setOpponentNumber(n)}>{n}</button>)}</div>{addingNumber ? <form onSubmit={e => { e.preventDefault(); const value = (new FormData(e.currentTarget).get('number') as string).trim(); if (/^(?:[0-9]|[1-9][0-9]|00)$/.test(value)) setOpponentNumber(value);  }}><label>背番号<input name="number" inputMode="numeric" pattern="([0-9]|[1-9][0-9]|00)" required maxLength={2} /></label><button>この背番号を使う</button></form> : <button onClick={() => setAddingNumber(true)}>背番号を追加</button>}</>}</div></Dialog>}
     {confirm && <Dialog title={confirm === 'quarter' ? `第${q?.number}Qを終了しますか？` : '試合を終了しますか？'} onClose={() => setConfirm(null)}><p>{confirm === 'quarter' ? '時計を止めて、Q間の休憩に入ります。' : '終了後も記録一覧の確認・訂正ができます。'}</p><div className="stack"><button className="primary" disabled={busy} onClick={() => command(confirm === 'quarter' ? 'endQuarter' : 'finish')}>{confirm === 'quarter' ? 'このQを終了する' : '試合を終了する'}</button><button className="quiet" onClick={() => setConfirm(null)}>戻る</button></div></Dialog>}
     {editing && <EditPlay play={editing} game={game} busy={busy} close={() => setEditing(null)} save={play => { void run(async () => { await repo.savePlay(play); setEditing(null); }); }} />}
   </>;
@@ -292,7 +318,7 @@ function GameScreen({ game, repo, now, busy, run, back }: { game: Game; repo: Re
 
 function PlayLine({ play, game }: { play: Play; game: Game }) {
   const player = game.roster.find(p => p.id === play.playerId);
-  return <div className="play-line"><span className="play-time">第{play.quarter}Q <strong>{formatTime(play.elapsedMs)}</strong></span><span><strong>{player?.number} {player?.name ?? '選手不明'}</strong><span className="play-label">{playLabel(play)}</span></span></div>;
+  return <div className="play-line"><span className="play-time">第{play.quarter}Q <strong>{formatTime(play.elapsedMs)}</strong></span><span><strong>{play.side === 'opponent' ? `相手 ${play.playerId}番` : `${player?.number ?? ''} ${player?.name ?? '選手不明'}`}</strong><span className="play-label">{playLabel(play)}</span></span></div>;
 }
 
 function EditPlay({ play, game, busy, close, save }: { play: Play; game: Game; busy: boolean; close: () => void; save: (play: Play) => void }) {
@@ -309,11 +335,17 @@ function EditPlay({ play, game, busy, close, save }: { play: Play; game: Game; b
     save({ ...value, elapsedMs, shot: isShot(value.action) ? value.shot ?? '2' : null, updatedAt: Date.now() });
   }
   return <Dialog title="記録を訂正" onClose={close}><form onSubmit={submit} className="stack">
-    <label>選手<select value={value.playerId} onChange={e => setValue({ ...value, playerId: e.target.value })}>{sortPlayers(game.roster).map(p => <option key={p.id} value={p.id}>{p.number} {p.name}</option>)}</select></label>
-    <label>プレー<select value={value.action} onChange={e => setValue({ ...value, action: e.target.value as Action })}>{Object.entries(actionLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    {value.side === 'opponent' ? <label>相手の背番号<input inputMode="numeric" pattern="([0-9]|[1-9][0-9]|00)" maxLength={2} required value={value.playerId} onChange={e => setValue({ ...value, playerId: e.target.value })} /></label> : <label>選手<select value={value.playerId} onChange={e => setValue({ ...value, playerId: e.target.value })}>{sortPlayers(game.roster).map(p => <option key={p.id} value={p.id}>{p.number} {p.name}</option>)}</select></label>}
+    {value.side !== 'opponent' && <label>プレー<select value={value.action} onChange={e => setValue({ ...value, action: e.target.value as Action })}>{Object.entries(actionLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>}
     {isShot(value.action) && <label>シュート<select value={value.shot ?? '2'} onChange={e => setValue({ ...value, shot: e.target.value as Shot })}><option value="2">2点</option><option value="3">3点</option><option value="ft">フリースロー</option></select></label>}
     <div className="two-fields"><label>クォーター<select value={value.quarter} onChange={e => setValue({ ...value, quarter: Number(e.target.value) })}>{game.quarters.map(q => <option key={q.number} value={q.number}>第{q.number}Q</option>)}</select></label><label>開始から<input value={time} onChange={e => setTime(e.target.value)} placeholder="05:32" inputMode="text" required /></label></div>
     {error && <p className="error" role="alert">{error}</p>}
     <button className="primary" disabled={busy}>訂正を保存</button><button type="button" className="quiet danger" disabled={busy} onClick={() => save({ ...play, cancelled: true, updatedAt: Date.now() })}>この記録を取り消す</button>
   </form></Dialog>;
+}
+
+function TeamInfo({ team, save, back, busy }: { team: { name?: string; passphrase?: string }; save: (name: string) => void; back: () => void; busy: boolean }) {
+  const [name, setName] = useState(team.name ?? '');
+  const [submitted, setSubmitted] = useState(false);
+  return <><Back onClick={back} /><h1>チーム情報</h1><form className="panel stack" onSubmit={e => { e.preventDefault(); if (!name.trim()) return; save(name.trim()); setSubmitted(true); }}><label>チーム名<input value={name} maxLength={80} required onChange={e => { setName(e.target.value); setSubmitted(false); }} /></label><button className="primary" disabled={busy}>チーム名を保存</button>{submitted && team.name === name.trim() && <p role="status">チーム名を保存しました。</p>}</form><section className="panel"><h2>合言葉</h2><p>{team.passphrase ?? '確認するには、一度退出して合言葉で参加し直してください。'}</p></section></>;
 }

@@ -3,6 +3,8 @@ import type { Game, Play, Player } from './domain';
 export type SyncState = { pending: number; error: string | null; fromCache: boolean };
 export type Stop = () => void;
 export interface Repository {
+  watchTeam: (cb: (team: { name?: string; passphrase?: string }) => void) => Stop;
+  saveTeamName: (name: string) => Promise<void>;
   mode: 'local' | 'cloud';
   scope: string;
   watchPlayers: (cb: (players: Player[]) => void) => Stop;

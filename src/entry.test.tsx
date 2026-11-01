@@ -19,9 +19,10 @@ describe('メールを使わない入口', () => {
     access.mockRejectedValue(new Error('この合言葉はすでに使われています。別の合言葉にしてください。'));
     const user = userEvent.setup(); render(<App />);
     await user.click(await screen.findByRole('button', { name: 'チームを作成' }));
+    await user.type(screen.getByLabelText('チーム名'), 'さくら中');
     await user.type(screen.getByLabelText('合言葉'), 'バスケの部活');
     await user.click(screen.getByRole('button', { name: 'この合言葉で作成' }));
-    await waitFor(() => expect(access).toHaveBeenCalledWith('create', 'バスケの部活'));
+    await waitFor(() => expect(access).toHaveBeenCalledWith('create', 'バスケの部活', 'さくら中'));
     expect((await screen.findByRole('alert')).textContent).toContain('すでに使われています');
     expect((screen.getByLabelText('合言葉') as HTMLInputElement).value).toBe('バスケの部活');
   });
@@ -31,7 +32,7 @@ describe('メールを使わない入口', () => {
     await user.click(await screen.findByRole('button', { name: 'チームに参加' }));
     await user.type(screen.getByLabelText('合言葉'), 'みんなで練習');
     await user.click(screen.getByRole('button', { name: '参加する' }));
-    await waitFor(() => expect(access).toHaveBeenCalledWith('join', 'みんなで練習'));
+    await waitFor(() => expect(access).toHaveBeenCalledWith('join', 'みんなで練習', undefined));
     await user.click(screen.getByRole('button', { name: '← 戻る' }));
     expect(screen.getAllByRole('button')).toHaveLength(2);
   });

@@ -119,3 +119,13 @@ dialog::backdrop { background: #15251ac4; }
 @media (min-width: 700px) { .shell { padding-inline: 26px; } .app-header { padding-top: 24px; } }
 @media (max-width: 360px) { .shell { padding-inline: 12px; } .panel { padding: 15px; } .action { font-size: 18px; } .roster-row { gap: 4px; } .roster-row button { padding-inline: 6px; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+.results { margin-block: 20px; }
+.result-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 12px; }
+.result-tabs button { padding: 8px; font-size: 13px; min-height: 42px; }
+.result-tabs button[aria-pressed="true"] { background: #244d35; color: white; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { border-bottom: 1px solid #d8dfd9; padding: 10px 5px; text-align: right; }
+th:first-child { text-align: left; overflow-wrap: anywhere; }
+.score { font-size: 18px; font-weight: bold; text-align: center; overflow-wrap: anywhere; }
+.opponent-action { margin-bottom: 16px; border-width: 2px; }

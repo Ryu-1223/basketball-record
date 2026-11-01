@@ -14,7 +14,7 @@ export default async function handler(request: TeamRequest, response: TeamRespon
     catch { return response.status(403).json({ error: 'この画面からは操作できません。' }); }
   }
   if (!request.headers['content-type']?.startsWith('application/json')) return response.status(415).json({ error: '入力形式を確認してください。' });
-  const body = request.body as { action?: unknown; passphrase?: unknown } | null;
+  const body = request.body as { action?: unknown; passphrase?: unknown; teamName?: unknown } | null;
   if (!body || typeof body !== 'object' || (body.action !== 'create' && body.action !== 'join') || typeof body.passphrase !== 'string' || body.passphrase.length > 256) {
     return response.status(400).json({ error: '合言葉を入力してください。' });
   }
@@ -24,7 +24,7 @@ export default async function handler(request: TeamRequest, response: TeamRespon
     const forwarded = request.headers['x-vercel-forwarded-for'] ?? request.headers['x-forwarded-for'];
     const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0].trim() ?? request.socket.remoteAddress ?? 'unknown';
     await service.rateLimit(ip);
-    const result = await service.access(body.action, body.passphrase);
+    const result = await service.access(body.action, body.passphrase, body.teamName);
     return response.status(200).json(result);
   } catch (error) {
     if (error instanceof TeamError) {

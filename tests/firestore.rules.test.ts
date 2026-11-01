@@ -9,6 +9,7 @@ const play = { id: 'play', gameId: 'game', quarter: 1, elapsedMs: 5000, playerId
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-basketball-record', firestore: { rules: readFileSync('firestore.rules', 'utf8'), host: '127.0.0.1', port: 8080 } });
   await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'teams/basketball'), { name: 'テスト', passphrase: '合言葉' });
     await setDoc(doc(context.firestore(), 'teams/basketball/members/team-user'), { enabled: true });
     await setDoc(doc(context.firestore(), 'teams/basketball/games/game'), game);
   });
@@ -26,6 +27,15 @@ describe('部活のアクセス制御', () => {
     await assertSucceeds(getDoc(doc(db, 'teams/basketball/games/game')));
     await assertSucceeds(setDoc(doc(db, 'teams/basketball/games/game/plays/play'), play));
     await assertSucceeds(updateDoc(doc(db, 'teams/basketball/games/game/plays/play'), { cancelled: true }));
+  });
+  it('相手得点の番号とチーム名だけを正しく保存できる', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const ref = doc(db, 'teams/basketball/games/game/plays/opponent');
+    await assertSucceeds(setDoc(ref, { ...play, id: 'opponent', side: 'opponent', playerId: '00' }));
+    await assertFails(setDoc(ref, { ...play, id: 'opponent', side: 'opponent', playerId: '007' }));
+    await assertFails(setDoc(ref, { ...play, id: 'opponent', side: 'opponent', playerId: '7', action: 'miss' }));
+    await assertSucceeds(updateDoc(doc(db, 'teams/basketball'), { name: '新しい名前' }));
+    await assertFails(updateDoc(doc(db, 'teams/basketball'), { passphrase: 'changed' }));
   });
   it('自分でアクセス権を取得できず、他の部活も読めない', async () => {
     const db = environment.authenticatedContext('outsider').firestore();

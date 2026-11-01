@@ -4,7 +4,7 @@ export type Quarter = { number: number; startedAt: number; endedAt: number | nul
 export type Game = {
   id: string; opponent: string; date: string; roster: RosterPlayer[];
   status: 'ready' | 'running' | 'interval' | 'finished';
-  quarters: Quarter[]; createdAt: number; updatedAt: number;
+  quarters: Quarter[]; createdAt: number; updatedAt: number; opponentTracking?: boolean;
 };
 export const actionLabels = {
   miss: 'シュート外', made: 'シュート決', rebound: 'リバウンド', steal: 'パスカット',
@@ -14,7 +14,7 @@ export type Shot = '2' | '3' | 'ft';
 export type Play = {
   id: string; gameId: string; quarter: number; elapsedMs: number;
   playerId: string; action: Action; shot: Shot | null;
-  createdAt: number; updatedAt: number; cancelled: boolean;
+  createdAt: number; updatedAt: number; cancelled: boolean; side?: 'opponent';
 };
 export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'action' | 'createdAt'> & { playerId?: string };
 
