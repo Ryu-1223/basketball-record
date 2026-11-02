@@ -139,7 +139,7 @@ function runningPanel(p: Pen, game: Game, plays: Play[], sheet: SheetInfo, offse
       if (play.shot === 'ft') p.circle(sx + 2.75, pos.y + 2, .65, ink, true);
       else p.line(sx + .5, pos.y + 3.7, sx + 5, pos.y + .4, .4, ink);
       const player = team.players.find(a => a.id === play.playerId);
-      p.text(nx + .6, pos.y + 2.9, player?.number ?? (side === 'opponent' ? play.playerId : '?'), 2.6, 4.5, ink);
+      p.text(nx + .6, pos.y + 2.9, player?.number ?? (side === 'opponent' && play.playerId !== '@unknown' ? play.playerId : '?'), 2.6, 4.5, ink);
       if (play.shot === '3') p.circle(nx + 2.75, pos.y + 2.05, 2, ink);
     }
     if (team.checked.score) {
@@ -227,19 +227,20 @@ export function buildSheetPages(game: Game, plays: Play[], kind: OutputKind = 'a
   if (kind !== 'sheet') {
     for (const side of ['own', 'opponent'] as const) {
       const team = sheet[side]; let p = new Pen(), y = 32;
-      const headers = side === 'own' ? ['選手', '2点 成功/試投', '3点 成功/試投', 'FT 成功/試投', '得点', 'REB', 'パスカット'] : ['選手', '2点成功', '3点成功', 'FT成功', '得点'];
-      const xs = side === 'own' ? [10, 67, 95, 123, 153, 168, 183, 200] : [10, 84, 113, 142, 171, 200];
+      const full = side === 'own' ? game.recordMode !== 'scores' : game.kind === 'scrimmage' && (game.recordMode === 'both' || game.recordMode === undefined);
+      const headers = full ? ['選手', '2点 成功/試投', '3点 成功/試投', 'FT 成功/試投', '得点', 'REB', 'パスカット'] : ['選手', '2点成功', '3点成功', 'FT成功', '得点'];
+      const xs = full ? [10, 67, 95, 123, 153, 168, 183, 200] : [10, 84, 113, 142, 171, 200];
       function startPage() { p.text(10, 14, `選手別成績  ${side === 'own' ? '自チーム' : '相手'} ${team.name}`, 4, 190); p.text(10, 21, `${game.date}  対 ${game.opponent} / 時刻は省略・取消済み記録は除外`, 2.7, 190); headers.forEach((h, i) => p.text(xs[i] + 1, 29, h, 2.4, xs[i + 1] - xs[i] - 2)); p.line(10, 31, 200, 31, .3); }
       startPage();
       const rows = [...team.players.map(player => ({ name: `${player.number} ${player.name}`, id: player.id })), { name: 'チーム合計', id: null }];
       for (const row of rows) {
         if (y > 270) { add(p, '選手別成績'); p = new Pen(); y = 32; startPage(); }
         const selected = plays.filter(e => !e.cancelled && sideOf(e) === side && (row.id === null || e.playerId === row.id));
-        const cells = [row.name, ...(['2', '3', 'ft'] as const).map(shot => { const made = selected.filter(e => e.action === 'made' && e.shot === shot).length; const attempts = selected.filter(e => ['made', 'miss'].includes(e.action) && e.shot === shot).length; return side === 'own' ? `${made} / ${attempts}` : String(made); }), String(selected.reduce((n, e) => n + points(e), 0)), ...(side === 'own' ? [String(selected.filter(e => e.action === 'rebound').length), String(selected.filter(e => e.action === 'steal').length)] : [])];
+        const cells = [row.name, ...(['2', '3', 'ft'] as const).map(shot => { const made = selected.filter(e => e.action === 'made' && e.shot === shot).length; const attempts = selected.filter(e => ['made', 'miss'].includes(e.action) && e.shot === shot).length; return full ? `${made} / ${attempts}` : String(made); }), String(selected.reduce((n, e) => n + points(e), 0)), ...(full ? [String(selected.filter(e => e.action === 'rebound').length), String(selected.filter(e => e.action === 'steal').length)] : [])];
         cells.forEach((cell, i) => p.text(xs[i] + 1, y + 5, cell, 2.8, xs[i + 1] - xs[i] - 2));
         p.line(10, y + 7, 200, y + 7); y += 9;
       }
-      if (!team.checked.score) p.text(10, y + 8, '得点は未確認のため、記録された分の集計です。', 2.7, 190);
+      if (!team.checked.score || !full) p.text(10, y + 8, full ? '得点は未確認のため、記録された分の集計です。' : '得点のみ記録。シュート失敗・リバウンド等は未集計です。', 2.7, 190);
       add(p, '選手別成績');
     }
   }

@@ -51,9 +51,20 @@ describe('部活のアクセス制御', () => {
     await assertFails(setDoc(ref, { ...base, action: 'timeout', playerId: '@team', details: { remainingSec: 481 } }));
     await assertFails(setDoc(ref, { ...base, action: 'foul', playerId: '@coach', details: { code: 'C', penalty: '1', countsTeam: true } }));
     await assertFails(setDoc(ref, { ...base, action: 'foul', details: { code: 'INVALID', penalty: '', countsTeam: false } }));
+    await assertSucceeds(updateDoc(doc(db, path), { recordChecked: { own: { shots: true } } }));
     await assertSucceeds(updateDoc(doc(db, path), { status: 'interval' }));
     await assertSucceeds(setDoc(ref, { ...base, quarter: 2, action: 'foul', details: { code: 'P', penalty: '', countsTeam: true } }));
     await assertFails(setDoc(ref, { ...base, quarter: 2, action: 'entry', details: {} }));
+  });
+  it('部内ゲームで相手組の失敗・リバウンドと背番号不明得点を保存できる', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const path = 'teams/basketball/games/scrimmage';
+    await assertSucceeds(setDoc(doc(db, path), { ...game, id: 'scrimmage', kind: 'scrimmage', sessionId: 'session', opponentRoster: [{ id: '8', number: '8', name: '鈴木', memberId: 'p8' }] }));
+    const ref = doc(db, `${path}/plays/shot`);
+    await assertSucceeds(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '8', action: 'miss' }));
+    await assertSucceeds(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '8', action: 'rebound', shot: null }));
+    await assertSucceeds(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '@unknown', action: 'made' }));
+    await assertFails(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '@unknown', action: 'miss' }));
   });
   it('自分でアクセス権を取得できず、他の部活も読めない', async () => {
     const db = environment.authenticatedContext('outsider').firestore();

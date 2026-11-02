@@ -35,6 +35,7 @@ export async function createLocalRepository(name = 'basketball-record-local'): P
     saveTeamName: async () => {},
     watchPlayers: cb => watch(() => db.getAll('players') as Promise<Player[]>, cb),
     watchGames: (limit, cb) => watch(async () => ((await db.getAll('games')) as Game[]).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).slice(0, limit), cb),
+    watchGame: (gameId, cb) => watch(() => db.get('games', gameId) as Promise<Game | undefined>, cb),
     watchPlays: (gameId, cb) => watch(async () => ((await db.getAll('plays')) as Play[]).filter(p => p.gameId === gameId), cb),
     watchSync: cb => { syncWatchers.add(cb); cb(sync); return () => { syncWatchers.delete(cb); }; },
     savePlayer: value => save('players', value), saveGame: value => save('games', value), savePlay: value => save('plays', value),

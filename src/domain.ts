@@ -5,6 +5,8 @@ export type Quarter = { number: number; startedAt: number; endedAt: number | nul
 export type Game = {
   id: string; opponent: string; date: string; roster: RosterPlayer[];
   status: 'ready' | 'running' | 'interval' | 'finished';
+  recordChecked?: { own?: { shots?: boolean; rebound?: boolean; steal?: boolean }; opponent?: { shots?: boolean; rebound?: boolean; steal?: boolean } };
+  kind?: 'scrimmage'; recordMode?: 'scores' | 'own' | 'both'; opponentRoster?: (RosterPlayer & { memberId: string })[]; sessionId?: string; archived?: boolean;
   quarters: Quarter[]; createdAt: number; updatedAt: number; opponentTracking?: boolean; sheet?: SheetInfo;
 };
 export const actionLabels = {
@@ -19,7 +21,7 @@ export type Play = {
   details?: ToDetails;
   order?: number;
 };
-export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string };
+export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string; side?: 'opponent' };
 
 export function formatTime(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -41,12 +43,13 @@ export function sortPlayers<T extends RosterPlayer>(players: T[]) {
 }
 export function numberOrder(number: string) { return number === '00' ? -1 : Number(number); }
 export function quarterLabel(number: number) { return number <= 4 ? `第${number}Q` : `延長${number - 4}`; }
+export function periodLabel(game: Game, n: number) { return game.kind === 'scrimmage' ? `${n}本目` : quarterLabel(n); }
 export function validatePlayer(player: Player, others: Player[]) {
   if (!player.name.trim() || player.name.trim().length > 40) throw new Error('名前は1〜40文字で入力してください。');
   if (!/^(?:[0-9]|[1-9][0-9]|00)$/.test(player.number)) throw new Error('背番号は0〜99、または00で入力してください。');
   if (player.active && others.some(p => p.id !== player.id && p.active && p.number === player.number)) throw new Error('この背番号は登録済みです。');
 }
-export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' | 'undoEnd' | 'finish', now: number): Game {
+export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' | 'undoEnd' | 'finish' | 'undoFinish', now: number): Game {
   const next = structuredClone(game);
   const q = next.quarters.at(-1);
   if ((command === 'start' && game.status === 'ready') || (command === 'next' && game.status === 'interval')) {
@@ -60,6 +63,8 @@ export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' 
   } else if (command === 'finish' && game.status === 'interval') {
     next.status = 'finished';
     if (next.sheet && !next.sheet.endTime) next.sheet.endTime = new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+  } else if (command === 'undoFinish' && game.status === 'finished') {
+    next.status = 'interval';
   } else throw new Error('この操作は現在の試合状態では行えません。');
   next.updatedAt = now;
   return next;
@@ -71,7 +76,7 @@ export function beginPlay(game: Game, action: Action, now: number, id: string = 
   return { id, gameId: game.id, quarter: q.number, elapsedMs: now - q.startedAt, action, createdAt: now };
 }
 export function completePlay(game: Game, draft: Draft, playerId: string, shot: Shot | null, now: number): Play {
-  if (draft.gameId !== game.id || !game.roster.some(p => p.id === playerId)) throw new Error('この試合の選手を選んでください。');
+  if (draft.gameId !== game.id || !((playerId === '@unknown' && draft.action === 'made') || (draft.side === 'opponent' ? game.opponentRoster?.some(p => p.id === playerId) : game.roster.some(p => p.id === playerId)))) throw new Error('この試合の選手を選んでください。');
   if (game.status !== 'running' || draft.quarter !== game.quarters.at(-1)?.number) throw new Error('Qの状態が変わりました。もう一度記録してください。');
   if (isShot(draft.action) && !shot) throw new Error('シュートの種類を選んでください。');
   return { ...draft, playerId, shot: isShot(draft.action) ? shot : null, cancelled: false, updatedAt: now };

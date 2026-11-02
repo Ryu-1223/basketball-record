@@ -34,6 +34,9 @@ export function sheetFor(game: Game, plays: Play[] = [], teamName = ''): SheetIn
   sheet.opponent.name ||= game.opponent;
   // Immutable match roster supplies identity; only sheet-specific fields are augmented.
   sheet.own.players = game.roster.map(p => ({ ...p, license: '', captain: false, starter: false, ...sheet.own.players.find(x => x.id === p.id), id: p.id, number: p.number }));
+  for (const player of game.opponentRoster ?? []) {
+    if (!sheet.opponent.players.some(p => p.id === player.id)) sheet.opponent.players.push({ id: player.id, number: player.number, name: player.name, license: '', captain: false, starter: false });
+  }
   for (const play of plays) {
     if (play.side === 'opponent' && !play.cancelled && validNumber(play.playerId) && !sheet.opponent.players.some(p => p.id === play.playerId)) {
       sheet.opponent.players.push({ id: play.playerId, number: play.playerId, name: '', license: '', captain: false, starter: false });
@@ -119,6 +122,7 @@ export function sheetWarnings(game: Game, plays: Play[], sheet = sheetFor(game))
     const unchecked = Object.entries(team.checked).filter(([, done]) => !done).map(([key]) => checkedLabels[key as keyof Checked]);
     if (unchecked.length) warnings.push(`${name}：${unchecked.join('・')}が未確認です。空欄や部分的な記録を含みます。`);
     if (!team.name || team.players.some(p => !p.name)) warnings.push(`${name}：チーム名または選手名が未記入です。`);
+    if (plays.some(p => !p.cancelled && sideOf(p) === side && p.playerId === '@unknown')) warnings.push(`${name}：背番号不明の得点があります。`);
     if (team.players.length > 18) warnings.push(`${name}：19人目以降は続紙に記載します。`);
     if (plays.some(p => !p.cancelled && p.action === 'timeout' && sideOf(p) === side && timeoutMinute(sheet, p) === null)) warnings.push(`${name}：時間未記入のタイムアウトがあります。`);
     for (const p of team.players) if (plays.filter(x => !x.cancelled && x.action === 'entry' && sideOf(x) === side && x.playerId === p.id).length > 1) warnings.push(`${name} ${p.number}番：初出場が複数あり、最初の記録を使用します。`);

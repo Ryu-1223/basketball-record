@@ -31,9 +31,10 @@ service cloud.firestore {
     }
     function validGame(id) {
       let d = request.resource.data;
-      return d.keys().hasOnly(['id', 'opponent', 'date', 'roster', 'status', 'quarters', 'createdAt', 'updatedAt', 'opponentTracking', 'sheet']) &&
+      return d.keys().hasOnly(['id', 'opponent', 'date', 'roster', 'status', 'quarters', 'createdAt', 'updatedAt', 'opponentTracking', 'sheet', 'kind', 'recordMode', 'recordChecked', 'opponentRoster', 'sessionId', 'archived']) &&
         (!('sheet' in d) || validSheet(d.sheet)) &&
         (!('opponentTracking' in d) || d.opponentTracking is bool) &&
+        (!('recordChecked' in d) || d.recordChecked is map) && (!('kind' in d) || d.kind == 'scrimmage') && (!('recordMode' in d) || d.recordMode in ['scores','own','both']) && (!('opponentRoster' in d) || (d.opponentRoster is list && d.opponentRoster.size() <= 40)) && (!('sessionId' in d) || text(d.sessionId, 128)) && (!('archived' in d) || d.archived is bool) &&
         d.id == id && text(d.opponent, 80) && d.date is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') &&
         d.status in ['ready', 'running', 'interval', 'finished'] &&
         d.roster is list && d.roster.size() > 0 && d.roster.size() <= 40 &&
@@ -54,7 +55,7 @@ service cloud.firestore {
       let d = request.resource.data;
       let g = get(/databases/$(database)/documents/teams/$(team)/games/$(game)).data;
       return d.keys().hasOnly(['id', 'gameId', 'quarter', 'elapsedMs', 'playerId', 'action', 'shot', 'createdAt', 'updatedAt', 'cancelled', 'side', 'details', 'order']) &&
-        (!('side' in d) || (d.side == 'opponent' && d.action in ['made','foul','timeout','entry'] && (d.playerId.matches('([0-9]|[1-9][0-9]|00)') || (d.action == 'timeout' && d.playerId == '@team') || (d.action == 'foul' && d.playerId in ['@coach','@assistant'])))) &&
+        (!('side' in d) || (d.side == 'opponent' && d.action in ['made','miss','rebound','steal','foul','timeout','entry'] && (d.action in ['made','foul','timeout','entry'] || ('kind' in g && g.kind == 'scrimmage')) && (d.playerId.matches('([0-9]|[1-9][0-9]|00)') || (d.action == 'made' && d.playerId == '@unknown') || (d.action == 'timeout' && d.playerId == '@team') || (d.action == 'foul' && d.playerId in ['@coach','@assistant'])))) &&
         (!('order' in d) || (d.order is number && d.order > -1000000000000000 && d.order < 1000000000000000)) &&
         d.id == id && d.gameId == game && text(d.playerId, 128) &&
         d.quarter is int && d.quarter >= 1 && d.quarter <= g.quarters.size() + (d.action == 'foul' && g.status in ['ready','interval'] ? 1 : 0) &&
@@ -80,7 +81,7 @@ service cloud.firestore {
       match /games/{game} {
         allow read: if member(team);
         allow create: if member(team) && validGame(game);
-        allow update: if member(team) && validGame(game) && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.roster == resource.data.roster;
+        allow update: if member(team) && validGame(game) && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.roster.size() >= resource.data.roster.size();
         allow delete: if false;
         match /plays/{id} {
           allow read: if member(team);

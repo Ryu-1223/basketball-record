@@ -1,0 +1,54 @@
+import 'fake-indexeddb/auto';
+import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { deleteDB } from 'idb';
+vi.mock('./firebaseRepository', () => ({ hasCloudConfig: false }));
+vi.mock('virtual:pwa-register', () => ({ registerSW: () => () => Promise.resolve() }));
+import App from './App';
+HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
+
+it('部内ゲームで両組を選び、相手組の失敗とリバウンドを集計できる', async () => {
+  await deleteDB('basketball-record-local');
+  const user = userEvent.setup(); render(<App />);
+  await user.click(screen.getByRole('button', { name: 'チームを作成' }));
+  await user.click(screen.getByRole('button', { name: 'この端末で試す' }));
+  await user.click(await screen.findByRole('button', { name: '選手登録' }));
+  for (const [number, name] of [['4', '田中'], ['7', '山田']]) {
+    await user.type(screen.getByLabelText('背番号'), number); await user.type(screen.getByLabelText('名前'), name);
+    await user.click(screen.getByRole('button', { name: '選手を追加' })); await screen.findByText(new RegExp(`${number} ${name}を登録`));
+  }
+  await user.click(screen.getByRole('button', { name: '登録を完了して試合一覧へ' }));
+  await user.click(await screen.findByRole('button', { name: '新しい試合' }));
+  await user.click(screen.getByRole('button', { name: '部内ゲーム' }));
+  await user.click(screen.getByRole('checkbox', { name: '7 山田を赤組にする' }));
+  await user.click(screen.getByRole('button', { name: 'このメンバーで確定' }));
+  await user.click(await screen.findByRole('button', { name: '試合開始' }));
+  await user.click(await screen.findByRole('button', { name: '赤組を記録' }));
+  await user.click(screen.getByRole('button', { name: 'シュート外' }));
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /7\s*山田/ }));
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '2点' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await user.click(screen.getByRole('button', { name: 'リバウンド' }));
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /7\s*山田/ }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await user.click(screen.getByRole('button', { name: 'この記録を取り消す' }));
+  await user.click(await screen.findByRole('button', { name: '取消済みを確認・復元' }));
+  await user.click(screen.getByRole('button', { name: 'この記録を元に戻す' }));
+  await user.click(screen.getByRole('button', { name: '途中成績を見る' }));
+  await user.click(screen.getByRole('button', { name: '赤組の成績' }));
+  expect(screen.getByRole('row', { name: /7 山田 1 0 0% 0/ })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'リバウンド', pressed: false }));
+  expect(screen.getByRole('row', { name: /7 山田 1/ })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: '途中成績を閉じる' }));
+  await user.click(screen.getByRole('button', { name: 'このゲームを終了' }));
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'このゲームを終了する' }));
+  await user.click(await screen.findByRole('button', { name: '試合を終了する' }));
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '試合を終了する' }));
+  await user.click(await screen.findByRole('button', { name: '同じメンバーで次の試合' }));
+  await user.click(await screen.findByRole('button', { name: '試合開始' }));
+  await user.click(await screen.findByRole('button', { name: '今日の合計を見る' }));
+  expect(await screen.findByText(/同じ日に「次の試合」から作成した2ゲーム/)).toBeTruthy();
+});

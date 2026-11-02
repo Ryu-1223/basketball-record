@@ -114,6 +114,16 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
     saveTeamName: async name => { await updateDoc(doc(db, teamPath), { name }); },
     watchPlayers: cb => watch('players', collection(db, `${teamPath}/players`), cb),
     watchGames: (count, cb) => watch('games', query(collection(db, `${teamPath}/games`), orderBy('date', 'desc'), limit(count)), cb),
+    watchGame: (gameId, cb) => {
+      const key = `game:${gameId}`;
+      const stopSnapshot = onSnapshot(doc(db, `${teamPath}/games/${gameId}`), { includeMetadataChanges: true }, snapshot => {
+        snapshotPending.set(key, new Set(snapshot.metadata.hasPendingWrites ? [snapshot.ref.path] : []));
+        cacheStates.set(key, snapshot.metadata.fromCache); errors.delete(`watch:${key}`);
+        cb(snapshot.exists() ? snapshot.data() as Game : undefined); notify();
+      }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); });
+      const stop = () => { stopSnapshot(); snapshotPending.delete(key); cacheStates.delete(key); stops.delete(stop); notify(); };
+      stops.add(stop); return stop;
+    },
     watchPlays: (gameId, cb) => watch(`plays:${gameId}`, collection(db, `${teamPath}/games/${gameId}/plays`), cb),
     watchSync: cb => { syncListeners.add(cb); cb(state()); return () => { syncListeners.delete(cb); }; },
     savePlayer: value => save(`${teamPath}/players/${value.id}`, value),
