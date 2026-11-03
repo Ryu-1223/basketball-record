@@ -12,6 +12,8 @@ import App from './App';
 HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
 HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
 
+vi.stubGlobal('scrollTo', vi.fn());
+
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.restoreAllMocks(); });
 describe('マネージャーの記録操作', () => {
   it('試合準備から選手登録しても入力した対戦相手と日付を保持する', async () => {
@@ -49,7 +51,12 @@ describe('マネージャーの記録操作', () => {
     await user.click(screen.getByRole('button', { name: 'このメンバーで確定' }));
     await user.click(await screen.findByRole('button', { name: '試合開始' }));
     await waitFor(() => expect((screen.getByRole('button', { name: 'シュート決' }) as HTMLButtonElement).disabled).toBe(false));
-    now += 332_000;
+    await user.click(screen.getByRole('button', { name: '使い方' }));
+    expect(screen.getByRole('heading', { name: '使い方' })).toBeTruthy();
+    now += 1000;
+    await user.click(screen.getByRole('button', { name: /試合の記録/ }));
+    expect(screen.getByRole('timer').textContent).toBe('00:01');
+    now += 331_000;
     await user.click(screen.getByRole('button', { name: 'シュート決' }));
     const playerDialog = screen.getByRole('dialog');
     expect(within(playerDialog).getByText('第1Q・05:32')).toBeTruthy();
@@ -95,5 +102,26 @@ describe('マネージャーの記録操作', () => {
     await waitFor(() => expect(within(screen.getByRole('list')).getByText('フリースロー成功')).toBeTruthy());
     await user.click(screen.getByRole('button', { name: '← 試合一覧' }));
     expect(await screen.findByRole('button', { name: /テスト中学校/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '過去の記録' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /テスト中学校/ }));
+    await screen.findByRole('button', { name: '← 過去の記録に戻る' });
+    await user.click(screen.getByRole('button', { name: 'チーム情報' }));
+    await user.clear(screen.getByLabelText('チーム名'));
+    await user.type(screen.getByLabelText('チーム名'), '変更途中');
+    await user.click(screen.getByRole('button', { name: '使い方' }));
+    await user.click(screen.getByRole('button', { name: 'チーム情報' }));
+    expect((screen.getByLabelText('チーム名') as HTMLInputElement).value).toBe('変更途中');
+    await user.click(screen.getByRole('button', { name: '過去の記録' }));
+    expect(screen.getByRole('button', { name: '← 過去の記録に戻る' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '同じメンバーで次の試合' }));
+    await user.click(await screen.findByRole('button', { name: '試合開始' }));
+    await screen.findByRole('button', { name: '一時停止' });
+    await user.click(screen.getByRole('button', { name: '過去の記録' }));
+    expect(screen.getByRole('button', { name: '← 過去の記録に戻る' })).toBeTruthy();
+    now += 2000;
+    await user.click(screen.getByRole('button', { name: /試合の記録/ }));
+    expect(screen.getByRole('timer').textContent).toBe('00:02');
+    expect(screen.getByRole('button', { name: 'シュート決' })).toBeTruthy();
+
   });
 });

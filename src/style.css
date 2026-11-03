@@ -168,3 +168,10 @@ th:first-child { text-align: left; overflow-wrap: anywhere; }
 .game-active .last-play h2 { display: none; }
 .game-active .last-play .play-line { font-size: 13px; }
 .game-active .result-tabs { margin: 4px 0; }
+.main-tabs { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: #f6f7f5; border-bottom: 1px solid var(--line); }
+.main-tabs button { border-radius: 0; border: 0; border-bottom: 3px solid transparent; padding: 10px 3px; font-size: 13px; min-height: 52px; }
+.main-tabs button[aria-current=page] { background: #e7f0e8; border-bottom-color: #234b39; font-weight: 800; }
+[hidden] { display: none !important; }
+@media print { .main-tabs { display: none; } }
+
+.main-tabs small { display: block; font-size: 10px; font-weight: 500; }

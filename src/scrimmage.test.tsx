@@ -8,6 +8,8 @@ vi.mock('virtual:pwa-register', () => ({ registerSW: () => () => Promise.resolve
 import App from './App';
 HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
 HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+vi.stubGlobal('scrollTo', vi.fn());
+
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
 
 it('部内ゲームで両組を選び、相手組の失敗とリバウンドを集計できる', async () => {

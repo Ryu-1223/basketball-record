@@ -20,7 +20,7 @@ export interface Repository {
 }
 
 export function readableError(error: unknown) {
-  const code = (error as { code?: string })?.code ?? '';
+  const code = String((error as { code?: unknown })?.code ?? '');
   if (code.includes('permission-denied')) return '保存権限を確認できません。管理者に連絡してください。';
   if (code.includes('unauthenticated') || code.includes('user-token-expired')) return '認証の有効期限が切れました。接続を確認してログインし直してください。';
   if (code.includes('quota') || code.includes('resource-exhausted')) return '保存先の利用上限に達しました。管理者に連絡してください。';

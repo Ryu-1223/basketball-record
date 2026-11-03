@@ -101,12 +101,19 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [page, setPage] = useState<'home' | 'players' | 'new' | 'game' | 'team' | 'help'>(() => localStorage.getItem(viewKey) ? 'game' : 'home');
-  const [playerOrigin, setPlayerOrigin] = useState<'home' | 'new'>('home');
+  const [page, setPage] = useState<'home' | 'players' | 'new' | 'game' | 'team' | 'help' | 'history' | 'historyGame'>(() => localStorage.getItem(viewKey) ? 'game' : 'home');
+  const [playerOrigin, setPlayerOrigin] = useState<'home' | 'new' | 'team'>('team');
   const [team, setTeam] = useState<{ name?: string; passphrase?: string }>({});
+  const [newVersion, setNewVersion] = useState(0);
   const [newMounted, setNewMounted] = useState(false);
   const [template, setTemplate] = useState<Game | undefined>();
   const [gameId, setGameId] = useState<string | null>(() => localStorage.getItem(viewKey));
+  const [historyId, setHistoryId] = useState<string | null>(null);
+  const [historyGame, setHistoryGame] = useState<Game | undefined>();
+  const [teamMounted, setTeamMounted] = useState(false);
+  const recordPage = useRef<'home' | 'new' | 'game'>(gameId ? 'game' : 'home');
+  const historyPage = useRef<'history' | 'historyGame'>('history');
+  const scrollPositions = useRef<Record<string, number>>({});
   const [openedGame, setOpenedGame] = useState<Game | undefined>();
   const [sync, setSync] = useState<SyncState>({ pending: 0, error: null, fromCache: true });
   const [online, setOnline] = useState(navigator.onLine);
@@ -116,6 +123,7 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
   const [confirmLogout, setConfirmLogout] = useState(false);
   const locked = useRef(false);
 
+  useEffect(() => { setHistoryGame(undefined); if (historyId) return repo.watchGame(historyId, setHistoryGame); }, [repo, historyId]);
   useEffect(() => repo.watchTeam(setTeam), [repo]);
   useEffect(() => repo.watchPlayers(setPlayers), [repo]);
   useEffect(() => repo.watchGames(limit, value => { setGames(value); setLoaded(true); }), [repo, limit]);
@@ -140,13 +148,26 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
     catch (err) { setError(readableError(err)); }
     finally { locked.current = false; setBusy(false); }
   }
-  function navigate(next: typeof page) { if (next === 'new') setNewMounted(true); if (next === 'home') setNewMounted(false); setPage(next); setError(''); if (next !== 'game') localStorage.removeItem(viewKey); }
-  function openGame(id: string) { setGameId(id); localStorage.setItem(viewKey, id); navigate('game'); }
+  function navigate(next: typeof page) {
+    scrollPositions.current[page] = window.scrollY;
+    if (next === 'new') setNewMounted(true);
+    if (next === 'team') setTeamMounted(true);
+    if (next === 'home' || next === 'new' || next === 'game') recordPage.current = next;
+    if (next === 'history' || next === 'historyGame') historyPage.current = next;
+    setPage(next); setError('');
+    requestAnimationFrame(() => window.scrollTo(0, scrollPositions.current[next] ?? 0));
+  }
+  function openGame(id: string) {
+    setGameId(id); localStorage.setItem(viewKey, id); navigate('game');
+  }
+  function openHistory(id: string) { setHistoryId(id); navigate('historyGame'); }
   const game = games.find(g => g.id === gameId) ?? (openedGame?.id === gameId ? openedGame : undefined);
   const recording = games.some(g => g.status === 'running');
+  const listedGames = games.filter(g => (page === 'history' ? g.status === 'finished' : g.status !== 'finished') && !!g.archived === (page === 'history' && showArchived) && (page !== 'history' || g.opponent.includes(search) || g.date.includes(search))).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 
   return <div className={`shell ${page === 'game' && game?.status !== 'finished' ? 'game-active' : ''}`}>
-    <header className="app-header"><button className="brand" onClick={() => navigate('home')}>{team.name || 'バスケの記録'}</button><button className="quiet small" onClick={() => navigate('team')}>チーム情報</button><button className="quiet small" onClick={() => setConfirmLogout(true)}>退出</button></header>
+    <header className="app-header"><span className="brand">{team.name || 'バスケの記録'}</span></header>
+    <nav className="main-tabs" aria-label="メイン画面">{([['home', '試合の記録'], ['history', '過去の記録'], ['team', 'チーム情報'], ['help', '使い方']] as const).map(([key, label]) => <button key={key} aria-current={(key === 'home' ? ['home', 'new', 'game'].includes(page) : key === 'team' ? ['team', 'players'].includes(page) : key === 'history' ? ['history', 'historyGame'].includes(page) : page === key) ? 'page' : undefined} onClick={() => navigate(key === 'home' ? recordPage.current : key === 'history' ? historyPage.current : key === 'team' && page === 'players' ? 'players' : key)}>{label}{key === 'home' && game?.status === 'running' && <small>{game.quarters.at(-1)?.pausedAt != null ? '一時停止中' : '記録中'}</small>}</button>)}</nav>
     <div className={`sync-bar ${sync.error ? 'problem' : ''}`} role="status">
       <span>{repo.mode === 'local' ? (sync.pending ? 'この端末に保存中…' : 'この端末だけに保存') : sync.error ? '保存を確認してください' : sync.pending ? `未送信 ${sync.pending}件${online ? '・送信中' : '・通信なし'}` : !online ? '通信なし・端末の記録を表示' : sync.fromCache ? '保存先を確認中…' : 'すべて保存済み'}</span>
       {repo.mode === 'local' && <span className="tag">試用</span>}
@@ -154,21 +175,22 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
     {sync.error && <div className="error" role="alert">{sync.error}<p className="small">未送信の入力は端末に残ります。通信や設定を確認してください。</p>{'retry' in repo && <button onClick={() => (repo as Repository & { retry: () => void }).retry()}>再送する</button>}</div>}
     {error && <div className="error" role="alert">{error}<button className="quiet" onClick={() => setError('')}>閉じる</button></div>}
     <main>
-      {page === 'home' && <>
-        <div className="page-title"><h1>試合の記録</h1><p className="muted">今日の試合も、これまでの試合も。</p></div>
-        <div className="home-actions"><button className="primary" onClick={() => { setTemplate(undefined); navigate('new'); }}>新しい試合</button><button onClick={() => { setPlayerOrigin('home'); navigate('players'); }}>選手登録</button></div>
-        <h2 className="section-title">試合一覧</h2><label>試合を探す<input value={search} onChange={e => setSearch(e.target.value)} placeholder="対戦相手・日付" /></label><button className="quiet small" onClick={() => setShowArchived(!showArchived)}>{showArchived ? '通常の試合を見る' : '保管した試合を見る'}</button>
-        {!loaded ? <p role="status">読み込み中…</p> : !games.length ? <section className="empty"><p>まだ試合がありません</p><p className="muted">選手を登録して、最初の試合を始めましょう。</p></section> : <div className="game-list">{games.filter(g => !!g.archived === showArchived && (g.opponent.includes(search) || g.date.includes(search))).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).map(g => <button key={g.id} className="game-card" onClick={() => openGame(g.id)}>
+      {(page === 'home' || page === 'history') && <>
+        <div className="page-title"><h1>{page === 'history' ? '過去の記録' : '試合の記録'}</h1><p className="muted">{page === 'history' ? '終了した試合を確認できます。' : '新しい試合を始めるか、続きから記録します。'}</p></div>
+        {page === 'home' && <div className="home-actions"><button className="primary" onClick={() => { setTemplate(undefined); setNewMounted(false); setNewVersion(v => v + 1); navigate('new'); }}>新しい試合</button><button onClick={() => { setPlayerOrigin('home'); navigate('players'); }}>選手登録</button></div>}
+        <h2 className="section-title">試合一覧</h2>{page === 'history' && <><label>試合を探す<input value={search} onChange={e => setSearch(e.target.value)} placeholder="対戦相手・日付" /></label><button className="quiet small" onClick={() => setShowArchived(!showArchived)}>{showArchived ? '通常の試合を見る' : '保管した試合を見る'}</button></>}
+        {!loaded ? <p role="status">読み込み中…</p> : !listedGames.length ? <section className="empty"><p>{page === 'history' ? '該当する試合がありません' : '準備中・記録中の試合はありません'}</p></section> : <div className="game-list">{listedGames.map(g => <button key={g.id} className="game-card" onClick={() => page === 'history' ? openHistory(g.id) : openGame(g.id)}>
           <span className="row"><span className="muted small">{g.date.replaceAll('-', '/')}</span><span className={`tag ${g.status === 'running' ? 'active' : ''}`}>{statusLabels[g.status]}</span></span>
           <span className="opponent">対 {g.opponent}</span><span className="muted small">{g.roster.length}人登録{g.quarters.length ? ` / ${periodLabel(g, g.quarters.length)}` : ''}　記録を見る →</span>
         </button>)}</div>}
         {games.length >= limit && <button className="full" onClick={() => setLimit(value => value + 30)}>前の試合をもっと見る</button>}
       </>}
-      {page === 'players' && <Players players={players} repo={repo} run={run} busy={busy} back={() => navigate(playerOrigin)} origin={playerOrigin} sync={sync} />}
-      {newMounted && <div hidden={page !== 'new'}><NewGame key={template?.id ?? 'new'} template={template} teamName={team.name ?? ""} players={players} busy={busy} back={() => navigate('home')} register={() => { setPlayerOrigin('new'); navigate('players'); }} create={g => { void run(async () => { await repo.saveGame(g); setNewMounted(false); openGame(g.id); }); }} /></div>}
-      {page === 'help' && <Help back={() => navigate('team')} />}
-      {page === 'team' && <TeamInfo help={() => navigate('help')} team={team} busy={busy} back={() => navigate('home')} save={name => { void run(() => repo.saveTeamName(name)); }} />}
-      {page === 'game' && (game ? <GameScreen key={game.id} game={game} players={players} games={games} prepareNext={() => { setTemplate(game); navigate('new'); }} nextGame={next => { void run(async () => { await repo.saveGame(next); openGame(next.id); }); }} teamName={team.name ?? ""} pending={sync.pending > 0} repo={repo} now={Date.now()} busy={busy} run={run} back={() => navigate('home')} /> : <section className="panel stack"><p>{loaded ? 'この試合はまだ読み込まれていません。試合一覧から選び直してください。' : '試合を読み込み中…'}</p><button onClick={() => navigate('home')}>試合一覧へ</button></section>)}
+      <div hidden={page !== 'players'}><Players players={players} repo={repo} run={run} busy={busy} back={() => navigate(playerOrigin)} origin={playerOrigin} sync={sync} /></div>
+      {newMounted && <div hidden={page !== 'new'}><NewGame key={`${template?.id ?? 'new'}:${newVersion}`} template={template} teamName={team.name ?? ""} players={players} busy={busy} back={() => navigate('home')} register={() => { setPlayerOrigin('new'); navigate('players'); }} create={g => { void run(async () => { await repo.saveGame(g); setNewMounted(false); openGame(g.id); }); }} /></div>}
+      <div hidden={page !== 'help'}><Help back={() => navigate('team')} /></div>
+      {teamMounted && <div hidden={page !== 'team'}><button onClick={() => { setPlayerOrigin('team'); navigate('players'); }}>選手登録・変更</button><button className="quiet" onClick={() => setConfirmLogout(true)}>退出</button><TeamInfo team={team} busy={busy} save={name => { void run(() => repo.saveTeamName(name)); }} /></div>}
+      <div hidden={page !== 'game'}>{(game ? <GameScreen key={game.id} game={game} players={players} games={games} prepareNext={() => { setTemplate(game); setNewVersion(v => v + 1); navigate('new'); }} nextGame={next => { void run(async () => { await repo.saveGame(next); openGame(next.id); }); }} teamName={team.name ?? ""} pending={sync.pending > 0} repo={repo} now={Date.now()} busy={busy} run={run} back={() => navigate(game.status === 'finished' ? 'history' : 'home')} /> : <section className="panel stack"><p>{loaded ? 'この試合はまだ読み込まれていません。試合一覧から選び直してください。' : '試合を読み込み中…'}</p><button onClick={() => navigate('home')}>試合一覧へ</button></section>)}</div>
+      {historyGame && <div hidden={page !== 'historyGame'}><GameScreen key={`history:${historyGame.id}`} backLabel="過去の記録に戻る" game={historyGame} players={players} games={games} prepareNext={() => { setTemplate(historyGame); setNewVersion(v => v + 1); navigate('new'); }} nextGame={next => { void run(async () => { await repo.saveGame(next); openGame(next.id); }); }} teamName={team.name ?? ''} pending={sync.pending > 0} repo={repo} now={Date.now()} busy={busy} run={run} back={() => { setHistoryId(null); navigate('history'); }} /></div>}
     </main>
     {updateAvailable && !recording && sync.pending === 0 && <aside className="update panel"><p>新しい版があります。</p><button onClick={applyUpdate}>更新する</button></aside>}
     <footer>バスケの記録<span>見る、押す、残す。</span></footer>
@@ -180,9 +202,9 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
 }
 
 type Runner = (action: () => Promise<void>) => Promise<void>;
-function Back({ onClick }: { onClick: () => void }) { return <button className="back quiet" onClick={onClick}>← 試合一覧</button>; }
+function Back({ onClick, label = "試合一覧" }: { onClick: () => void; label?: string }) { return <button className="back quiet" onClick={onClick}>← {label}</button>; }
 
-function Players({ players, repo, run, busy, back, origin, sync }: { players: Player[]; repo: Repository; run: Runner; busy: boolean; back: () => void; origin: 'home' | 'new'; sync: SyncState }) {
+function Players({ players, repo, run, busy, back, origin, sync }: { players: Player[]; repo: Repository; run: Runner; busy: boolean; back: () => void; origin: 'home' | 'new' | 'team'; sync: SyncState }) {
   const [editing, setEditing] = useState<Player | null>(null);
   const [saved, setSaved] = useState('');
   const [name, setName] = useState(''); const [number, setNumber] = useState('');
@@ -196,7 +218,7 @@ function Players({ players, repo, run, busy, back, origin, sync }: { players: Pl
     });
   }
   function finish() { if ((name || number) && !window.confirm('入力中の選手はまだ登録されていません。移動しますか？')) return; back(); }
-  return <><Back onClick={finish} /><h1>選手登録</h1><p className="muted">次の試合でも、この名簿から選べます。</p>
+  return <><Back onClick={finish} label={origin === "new" ? "試合準備" : origin === "team" ? "チーム情報" : "試合一覧"} /><h1>選手登録</h1><p className="muted">次の試合でも、この名簿から選べます。</p>
     <form className="panel stack" onSubmit={submit}>
       <h2>{editing ? '選手を変更' : '選手を追加'}</h2>
       <div className="player-fields"><label>背番号<input ref={input} inputMode="numeric" maxLength={2} value={number} onChange={e => setNumber(e.target.value)} required placeholder="7" /></label><label>名前<input maxLength={40} value={name} onChange={e => setName(e.target.value)} required placeholder="田中" /></label></div>
@@ -210,7 +232,7 @@ function Players({ players, repo, run, busy, back, origin, sync }: { players: Pl
       {p.active && <button className="small" onClick={() => { setEditing(p); setName(p.name); setNumber(p.number); input.current?.focus(); }}>変更</button>}
       <button className="quiet small" disabled={busy} onClick={() => { void run(async () => { const next = { ...p, active: !p.active }; validatePlayer(next, players); await repo.savePlayer(next); }); }}>{p.active ? '非表示' : '戻す'}</button>
     </div>)}</div>
-    <p className="muted small">名簿を変更しても、過去の試合の名前・背番号は変わりません。</p><button className="primary full" type="button" onClick={finish}>{origin === "new" ? "登録を完了して試合準備へ" : "登録を完了して試合一覧へ"}</button>
+    <p className="muted small">名簿を変更しても、過去の試合の名前・背番号は変わりません。</p><button className="primary full" type="button" onClick={finish}>{origin === "new" ? "登録を完了して試合準備へ" : (origin === "team" ? "登録を完了してチーム情報へ" : "登録を完了して試合一覧へ")}</button>
   </>;
 }
 
@@ -248,7 +270,7 @@ function NewGame({ players, busy, back, register, create, teamName, template }: 
 function readDraft(gameId: string, scope: string): Draft | null {
   try { const value = JSON.parse(sessionStorage.getItem(`${draftKey}:${scope}`) ?? 'null') as Draft | null; return value?.gameId === gameId ? value : null; } catch { return null; }
 }
-function GameScreen({ game, players, games, prepareNext, nextGame, repo, now, busy, run, back, teamName, pending }: { game: Game; players: Player[]; games: Game[]; prepareNext: () => void; nextGame: (game: Game) => void; teamName: string; pending: boolean; repo: Repository; now: number; busy: boolean; run: Runner; back: () => void }) {
+function GameScreen({ game, players, games, prepareNext, nextGame, repo, now, busy, run, back, teamName, pending, backLabel }: { backLabel?: string; game: Game; players: Player[]; games: Game[]; prepareNext: () => void; nextGame: (game: Game) => void; teamName: string; pending: boolean; repo: Repository; now: number; busy: boolean; run: Runner; back: () => void }) {
   const [plays, setPlays] = useState<Play[]>([]);
   const [draft, setDraft] = useState<Draft | null>(() => readDraft(game.id, repo.scope));
   const [recordSide, setRecordSide] = useState<'own' | 'opponent'>('own');
@@ -324,7 +346,7 @@ function GameScreen({ game, players, games, prepareNext, nextGame, repo, now, bu
     void run(async () => { await repo.savePlay(appendPlay(plays, { ...opponentDraft, playerId: opponentNumber, side: 'opponent', shot, cancelled: false, updatedAt: Date.now() })); setOpponentDraft(null); setOpponentNumber(''); setAddingNumber(false); });
   }
   const displayPlays = showAll ? visible : visible.slice(-5).reverse();
-  return <><Back onClick={back} />
+  return <><Back onClick={back} label={backLabel} />
     <div className="game-heading"><p className="muted small">{game.date.replaceAll('-', '/')} <span className="tag">{statusLabels[game.status]}</span></p><h1>対 {game.opponent}</h1></div>
     <p className="score">{game.kind === 'scrimmage' ? (game.sheet?.own.name || '白組') : '自チーム'} {score(visible.filter(p => p.side !== 'opponent'))} − {game.opponentTracking || plays.some(p => p.side === 'opponent') ? score(visible.filter(p => p.side === 'opponent')) : '未記録'} {game.opponent}</p><p className="small muted center">{game.sheet && (!game.sheet.own.checked.score || !game.sheet.opponent.checked.score) ? '得点は記録分・未確認' : ''}</p>
     <button className="quiet full sheet-settings-trigger" onClick={() => setSettings(true)}>スコアシート情報</button>
@@ -410,17 +432,17 @@ function EditPlay({ play, game, busy, close, save }: { play: Play; game: Game; b
   </form></Dialog>;
 }
 
-function TeamInfo({ team, save, back, busy, help }: { help: () => void; team: { name?: string; passphrase?: string }; save: (name: string) => void; back: () => void; busy: boolean }) {
+function TeamInfo({ team, save, busy }: { team: { name?: string; passphrase?: string }; save: (name: string) => void; busy: boolean }) {
   const [name, setName] = useState(team.name ?? '');
   const [submitted, setSubmitted] = useState(false);
-  return <><Back onClick={back} /><h1>チーム情報</h1><button className="quiet small" onClick={help}>使い方</button><form className="panel stack" onSubmit={e => { e.preventDefault(); if (!name.trim()) return; save(name.trim()); setSubmitted(true); }}><label>チーム名<input value={name} maxLength={80} required onChange={e => { setName(e.target.value); setSubmitted(false); }} /></label><button className="primary" disabled={busy}>チーム名を保存</button>{submitted && team.name === name.trim() && <p role="status">チーム名を保存しました。</p>}</form><section className="panel"><h2>合言葉</h2><p>{team.passphrase ?? '確認するには、一度退出して合言葉で参加し直してください。'}</p></section></>;
+  return <><h1>チーム情報</h1><form className="panel stack" onSubmit={e => { e.preventDefault(); if (!name.trim()) return; save(name.trim()); setSubmitted(true); }}><label>チーム名<input value={name} maxLength={80} required onChange={e => { setName(e.target.value); setSubmitted(false); }} /></label><button className="primary" disabled={busy}>チーム名を保存</button>{submitted && team.name === name.trim() && <p role="status">チーム名を保存しました。</p>}</form><section className="panel"><h2>合言葉</h2><p>{team.passphrase ?? '確認するには、一度退出して合言葉で参加し直してください。'}</p></section></>;
 }
 
 function Help({ back }: { back: () => void }) {
-  return <><button className="back quiet" onClick={back}>← チーム情報に戻る</button><h1>使い方</h1>
+  return <><button className="back quiet" onClick={back}>← チーム情報に戻る</button><h1>使い方</h1><p>上のタブで「試合の記録」「過去の記録」「チーム情報」「使い方」を切り替えます。記録中に別のタブを開いても時計はそのままです。「試合の記録」で入力画面に戻れます。終了した試合は「過去の記録」で探せます。</p>
     <p>はじめて使うときは、選手を登録し、新しい試合を作って、試合開始を押します。プレーを記録し、試合終了後に結果を見られます。</p>
     <details className="panel"><summary>チームを作る・参加する</summary><p>最初の画面の「チームを作成」でチーム名と合言葉を決めます。すでに使われている合言葉は選べません。「チームに参加」では、教えてもらった合言葉を入力します。</p><p>「チーム情報」ではチーム名の変更と合言葉の確認ができます。「退出」はこの端末からチームを離れる操作です。もう一度入るときは合言葉が必要です。</p></details>
-    <details className="panel"><summary>選手を登録する</summary><p>試合一覧の「選手登録」で名前と背番号を入力し、「選手を追加」を押します。続けて何人でも登録できます。「変更」で名前や番号を直せます。「非表示」は今後の試合で選ばない選手に使い、「戻す」で再表示します。</p><p>「登録を完了」を押すと前の画面に戻ります。登録選手の変更は過去の試合には反映されません。</p></details>
+    <details className="panel"><summary>選手を登録する</summary><p>「チーム情報」の「選手登録・変更」で名前と背番号を入力し、「選手を追加」を押します。続けて何人でも登録できます。「変更」で名前や番号を直せます。「非表示」は今後の試合で選ばない選手に使い、「戻す」で再表示します。</p><p>「登録を完了」を押すと前の画面に戻ります。登録選手の変更は過去の試合には反映されません。</p></details>
     <details className="panel"><summary>試合を準備する</summary><p>「新しい試合」で「練習試合・大会」または「部内ゲーム」を選びます。日付と相手を入力し、参加する選手にチェックを付けます。「全員選択」「選択を外す」も使えます。選手が足りないときは「選手登録へ」から追加します。</p><p>部内ゲームは、チーム２に入る選手にもチェックを付けます。それ以外の参加選手はチーム１です。記録する範囲で、得点のみ、チーム１の個人成績、両チームの個人成績を選べます。</p><p>必要に応じて「スコアシート情報」で大会名などを入力し、「このメンバーで確定」を押します。情報は後から追加できます。</p></details>
     <details className="panel"><summary>試合中に記録する</summary><p>「試合開始」で時計が動きます。「一時停止」で時計を止め、「再開」で続きから動かせます。止めている間も記録できます。会場の競技時計とは連動しません。</p><p>「シュート決」「シュート外」「リバウンド」「パスカット」を押して選手を選びます。シュートは続けて2点、3点、フリースローを選びます。得点した選手が分からない場合は「選手不明」を使えます。「選手を選び直す」「記録せず戻る」も使えます。</p><p>相手の得点は「相手のシュート決」から背番号と種類を選びます。初めての番号は「背番号を追加」から入力します。「背番号不明」も選べます。部内ゲームでは記録するチームを切り替えられます。</p><p>「ファウル」「タイムアウト」「Player in」からも記録できます。Player inは選手が初めて出たときに記録し、先発選手はスコアシート情報で設定します。タイムアウトの残り時間は会場の時計を見て入力します。</p><p>「このQを終了」で時計を止め、次のQを開始します。部内ゲームでは「このゲームを終了」を使います。必要なら「Q終了を取り消す」で戻せます。最後に「試合を終了する」を押します。</p><p>「途中成績を見る」で記録中の成績を確認できます。「この試合の選手」を開くと名簿、スコアシート情報、画面を消えにくくする設定があります。端末によっては画面消灯を防げません。</p></details>
     <details className="panel"><summary>記録を直す</summary><p>「直前の記録」の「この記録を取り消す」で直前の入力を取り消せます。記録一覧の「訂正」では選手、種類、時間などを直したり、取り消したりできます。「取消済みを確認・復元」から取り消した記録を戻せます。</p><p>「記録漏れを追加」では、入れ忘れた記録と入れる位置を選びます。試合終了後の「記録を確認・訂正する」では「前へ」「後へ」で順番も直せます。「この試合の選手を追加・訂正」はその試合の名簿だけを変更します。</p></details>
