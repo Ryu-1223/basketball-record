@@ -27,8 +27,8 @@ export default defineConfig(({ mode }) => {
       navigateFallbackDenylist: [/^\/api\//],
       cleanupOutdatedCaches: true,
       runtimeCaching: [{ urlPattern: /\/fonts\/NotoSansJP\.ttf$/, handler: 'CacheFirst', options: { cacheName: 'sheet-font-v1', cacheableResponse: { statuses: [200] }, expiration: { maxEntries: 1, maxAgeSeconds: 31536000 } } }],
-      // 新版は裏で有効にする。開いている試合画面は自動再読み込みせず、次の再読み込みで新しい版に切り替わる。
-      skipWaiting: true,
+      // 更新ボタンから有効化し、入力中の画面を維持する。
+      skipWaiting: false,
       clientsClaim: false,
       // Firebaseの応答や認証情報はService Workerでキャッシュしない。
     },

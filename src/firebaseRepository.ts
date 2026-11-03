@@ -46,8 +46,8 @@ export async function logout() {
 }
 
 type QueuedWrite = { path: string; value: Player | Game | Play; version: string };
-export async function createCloudRepository(uid: string, teamId: string): Promise<Repository & { retry: () => void }> {
-  const { db } = getServices();
+export async function createCloudRepository(uid: string, teamId: string): Promise<Repository & { retry: () => Promise<void> }> {
+  const { db, auth } = getServices();
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(teamId)) throw new Error('チームに参加し直してください。');
   const teamPath = `teams/${teamId}`;
   // サーバー拒否時も入力を失わないよう、Firestoreとは別の送信待ちを保持する。
@@ -61,6 +61,7 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
   const pending = new Set<string>((await outbox.getAllKeys('writes')) as string[]);
   const processing = new Set<string>();
   const stops = new Set<() => void>();
+  const renewals = new Set<() => void>();
   let closed = false;
   const state = (): SyncState => ({
     pending: new Set([...pending, ...[...snapshotPending.values()].flatMap(paths => [...paths])]).size,
@@ -75,6 +76,7 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
       let entry: QueuedWrite | undefined = await outbox.get('writes', path);
       while (entry && !closed) {
         await setDoc(doc(db, path), entry.value);
+        if (closed) return;
         const tx = outbox.transaction('writes', 'readwrite');
         const latest = await tx.store.get(path) as QueuedWrite | undefined;
         if (latest?.version === entry.version) await tx.store.delete(path);
@@ -90,38 +92,55 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
       if (!closed && pending.has(path) && !errors.has(path)) void process(path);
     }
   };
-  const retry = () => { [...pending].forEach(path => { void process(path); }); };
+  const retry = async () => {
+    await auth.currentUser?.getIdToken(true);
+    if (closed) return;
+    errors.delete('auth');
+    renewals.forEach(renew => renew());
+    [...pending].forEach(path => { void process(path); });
+  };
   const save = async (path: string, value: Player | Game | Play) => {
     await outbox.put('writes', { path, value, version: crypto.randomUUID() } satisfies QueuedWrite);
     pending.add(path); notify(); void process(path);
   };
   const watch = <T,>(key: string, q: Query<DocumentData>, cb: (values: T[]) => void) => {
-    const stopSnapshot = onSnapshot(q, { includeMetadataChanges: true }, snapshot => {
+    let stopSnapshot = () => {};
+    const renew = () => { stopSnapshot(); stopSnapshot = onSnapshot(q, { includeMetadataChanges: true }, snapshot => {
       snapshotPending.set(key, new Set(snapshot.docs.filter(d => d.metadata.hasPendingWrites).map(d => d.ref.path)));
       cacheStates.set(key, snapshot.metadata.fromCache);
       errors.delete(`watch:${key}`);
       cb(snapshot.docs.map(d => d.data() as T)); notify();
-    }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); });
-    const stop = () => { stopSnapshot(); snapshotPending.delete(key); cacheStates.delete(key); stops.delete(stop); notify(); };
+    }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); }); };
+    renewals.add(renew); renew();
+    const stop = () => { renewals.delete(renew); stopSnapshot(); snapshotPending.delete(key); cacheStates.delete(key); stops.delete(stop); notify(); };
     stops.add(stop); return stop;
   };
-  const online = () => retry();
+  const online = () => { void retry().catch(error => { errors.set('auth', readableError(error)); notify(); }); };
   window.addEventListener('online', online);
-  retry();
+  online();
   return {
     mode: 'cloud', scope: teamId, retry,
-    watchTeam: cb => onSnapshot(doc(db, teamPath), snap => cb(snap.data() as { name?: string; passphrase?: string })),
+    watchTeam: cb => {
+      const key = 'team';
+      let stopSnapshot = () => {};
+      const renew = () => { stopSnapshot(); stopSnapshot = onSnapshot(doc(db, teamPath), snap => { errors.delete('watch:team'); cb(snap.data() as { name?: string; passphrase?: string }); notify(); }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); }); };
+      renewals.add(renew); renew();
+      const stop = () => { renewals.delete(renew); stopSnapshot(); stops.delete(stop); };
+      stops.add(stop); return stop;
+    },
     saveTeamName: async name => { await updateDoc(doc(db, teamPath), { name }); },
     watchPlayers: cb => watch('players', collection(db, `${teamPath}/players`), cb),
     watchGames: (count, cb) => watch('games', query(collection(db, `${teamPath}/games`), orderBy('date', 'desc'), limit(count)), cb),
     watchGame: (gameId, cb) => {
       const key = `game:${gameId}`;
-      const stopSnapshot = onSnapshot(doc(db, `${teamPath}/games/${gameId}`), { includeMetadataChanges: true }, snapshot => {
+      let stopSnapshot = () => {};
+      const renew = () => { stopSnapshot(); stopSnapshot = onSnapshot(doc(db, `${teamPath}/games/${gameId}`), { includeMetadataChanges: true }, snapshot => {
         snapshotPending.set(key, new Set(snapshot.metadata.hasPendingWrites ? [snapshot.ref.path] : []));
         cacheStates.set(key, snapshot.metadata.fromCache); errors.delete(`watch:${key}`);
         cb(snapshot.exists() ? snapshot.data() as Game : undefined); notify();
-      }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); });
-      const stop = () => { stopSnapshot(); snapshotPending.delete(key); cacheStates.delete(key); stops.delete(stop); notify(); };
+      }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); }); };
+      renewals.add(renew); renew();
+      const stop = () => { renewals.delete(renew); stopSnapshot(); snapshotPending.delete(key); cacheStates.delete(key); stops.delete(stop); notify(); };
       stops.add(stop); return stop;
     },
     watchPlays: (gameId, cb) => watch(`plays:${gameId}`, collection(db, `${teamPath}/games/${gameId}/plays`), cb),

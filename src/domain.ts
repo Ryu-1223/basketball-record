@@ -72,6 +72,7 @@ export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' 
     if (next.sheet && !next.sheet.endTime) next.sheet.endTime = new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
   } else if (command === 'undoFinish' && game.status === 'finished') {
     next.status = 'interval';
+    if (q && q.endedAt != null && q.pausedAt == null) q.pausedAt = q.endedAt;
   } else throw new Error('この操作は現在の試合状態では行えません。');
   next.updatedAt = now;
   return next;

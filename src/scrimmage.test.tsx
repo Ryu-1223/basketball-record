@@ -25,8 +25,10 @@ it('部内ゲームで両組を選び、相手組の失敗とリバウンドを�
   await user.click(screen.getByRole('button', { name: '登録を完了して試合一覧へ' }));
   await user.click(await screen.findByRole('button', { name: '新しい試合' }));
   await user.click(screen.getByRole('button', { name: '部内ゲーム' }));
+  await user.click(screen.getByRole('button', { name: 'この内容で試合を作成' }));
+  expect(screen.getByRole('alert').textContent).toContain('チーム２に1人以上');
   await user.click(screen.getByRole('checkbox', { name: '7 山田をチーム２にする' }));
-  await user.click(screen.getByRole('button', { name: 'このメンバーで確定' }));
+  await user.click(screen.getByRole('button', { name: 'この内容で試合を作成' }));
   await user.click(await screen.findByRole('button', { name: '試合開始' }));
   await user.click(await screen.findByRole('button', { name: 'チーム２を記録' }));
   await user.click(screen.getByRole('button', { name: 'シュート外' }));
@@ -47,10 +49,9 @@ it('部内ゲームで両組を選び、相手組の失敗とリバウンドを�
   await user.click(screen.getByRole('button', { name: '途中成績を閉じる' }));
   await user.click(screen.getByRole('button', { name: 'このゲームを終了' }));
   await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'このゲームを終了する' }));
-  await user.click(await screen.findByRole('button', { name: '試合を終了する' }));
-  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '試合を終了する' }));
-  await user.click(await screen.findByRole('button', { name: '同じメンバーで次の試合' }));
+  await user.click(await screen.findByRole('button', { name: '次の試合を準備' }));
+  await user.click(screen.getByRole('button', { name: 'この内容で試合を作成' }));
   await user.click(await screen.findByRole('button', { name: '試合開始' }));
-  await user.click(await screen.findByRole('button', { name: '今日の合計を見る' }));
-  expect(await screen.findByText(/同じ日に「次の試合」から作成した2ゲーム/)).toBeTruthy();
+  await user.click(await screen.findByRole('button', { name: 'この連続ゲームの合計を見る' }));
+  expect(await screen.findByText(/同じ連続ゲームに含まれる2ゲーム/)).toBeTruthy();
 }, 15_000);

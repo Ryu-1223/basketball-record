@@ -3,13 +3,13 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Play } from './domain';
 import type { SyncState } from './repository';
 
-const backend = vi.hoisted(() => ({ save: vi.fn() }));
+const backend = vi.hoisted(() => ({ save: vi.fn(), refresh: vi.fn(), subscribe: vi.fn(() => vi.fn()) }));
 vi.mock('firebase/app', () => ({ initializeApp: () => ({}) }));
-vi.mock('firebase/auth', () => ({ getAuth: () => ({}), connectAuthEmulator: vi.fn(), signInWithCustomToken: vi.fn(), signOut: vi.fn() }));
+vi.mock('firebase/auth', () => ({ getAuth: () => ({ currentUser: { getIdToken: backend.refresh } }), connectAuthEmulator: vi.fn(), signInWithCustomToken: vi.fn(), signOut: vi.fn() }));
 vi.mock('firebase/firestore', () => ({
   initializeFirestore: () => ({}), persistentLocalCache: () => ({}), persistentMultipleTabManager: () => ({}),
   connectFirestoreEmulator: vi.fn(), collection: vi.fn(), doc: (_db: unknown, path: string) => ({ path }),
-  onSnapshot: vi.fn(), orderBy: vi.fn(), query: vi.fn(), limit: vi.fn(),
+  onSnapshot: backend.subscribe, orderBy: vi.fn(), query: vi.fn(), limit: vi.fn(),
   setDoc: backend.save, terminate: vi.fn(), clearIndexedDbPersistence: vi.fn(),
 }));
 beforeAll(() => {
@@ -36,4 +36,23 @@ describe('クラウド送信待ちの復旧', () => {
     expect(backend.save).toHaveBeenLastCalledWith({ path: 'teams/queue-test/games/game/plays/record-to-recover' }, play);
     await restored.close();
   });
+});
+
+it('認証を更新して、権限エラーで停止した監視を再登録する', async () => {
+  const { createCloudRepository } = await import('./firebaseRepository');
+  const repo = await createCloudRepository(crypto.randomUUID(), 'queue-test');
+  let state: SyncState = { pending: 0, error: null, fromCache: false };
+  repo.watchSync(value => { state = value; });
+  const stop = repo.watchGame('game', () => {});
+  const denied = backend.subscribe.mock.calls.at(-1) as unknown as [unknown, unknown, unknown, (error: unknown) => void];
+  denied[3]({ code: 'permission-denied' });
+  expect(state.error).not.toBeNull();
+  const count = backend.subscribe.mock.calls.length;
+  await repo.retry();
+  expect(backend.refresh).toHaveBeenCalledWith(true);
+  expect(backend.subscribe.mock.calls.length).toBeGreaterThan(count);
+  const renewed = backend.subscribe.mock.calls.at(-1) as unknown as [unknown, unknown, (snapshot: unknown) => void];
+  renewed[2]({ metadata: { hasPendingWrites: false, fromCache: false }, exists: () => false });
+  expect(state.error).toBeNull();
+  stop(); await repo.close();
 });

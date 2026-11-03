@@ -71,3 +71,14 @@ describe('Qごとの経過時間と記録', () => {
     expect(() => validatePlayer({ ...player, number: '07' }, [])).toThrow();
   });
 });
+
+it('試合終了を取り消してQ終了も戻した場合、時計は停止したままで再開できる', () => {
+  let game = transition(ready, 'start', 1000);
+  game = transition(game, 'endQuarter', 4000);
+  game = transition(game, 'finish', 5000);
+  game = transition(game, 'undoFinish', 10000);
+  game = transition(game, 'undoEnd', 11000);
+  expect(elapsed(game.quarters[0], 20000)).toBe(3000);
+  game = transition(game, 'resume', 21000);
+  expect(elapsed(game.quarters[0], 22000)).toBe(4000);
+});
