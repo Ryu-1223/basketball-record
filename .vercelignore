@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env*
+!.env.example
+!.env.emulator
+.vercel/
+.firebase/
+*-debug.log*
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+.tools/
+.codex-remote-attachments/
+tmp/
+output/
