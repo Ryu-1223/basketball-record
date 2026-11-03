@@ -73,6 +73,7 @@ export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' 
   } else if (command === 'undoFinish' && game.status === 'finished') {
     next.status = 'interval';
     if (q && q.endedAt != null && q.pausedAt == null) q.pausedAt = q.endedAt;
+    if (next.sheet) next.sheet.endTime = '';
   } else throw new Error('この操作は現在の試合状態では行えません。');
   next.updatedAt = now;
   return next;
