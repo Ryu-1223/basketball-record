@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { beginPlay, completePlay, elapsed, formatTime, transition, validatePlayer, type Game } from './domain';
 
 const ready: Game = { id: 'game', opponent: '相手校', date: '2026-11-01', roster: [{ id: 'p7', number: '7', name: '田中' }], quarters: [], status: 'ready', createdAt: 1, updatedAt: 1 };
+
+it('一時停止中も記録でき、再開後は停止時間を除いて計測する', () => {
+  let game = transition(ready, 'start', 1000);
+  game = transition(game, 'pause', 4000);
+  expect(elapsed(game.quarters[0], 9000)).toBe(3000);
+  expect(beginPlay(game, 'made', 9000, 'play').elapsedMs).toBe(3000);
+  game = transition(JSON.parse(JSON.stringify(game)), 'resume', 10000);
+  expect(elapsed(game.quarters[0], 12000)).toBe(5000);
+  game = transition(game, 'pause', 13000);
+  game = transition(game, 'endQuarter', 20000);
+  expect(elapsed(game.quarters[0], 30000)).toBe(6000);
+  game = transition(game, 'undoEnd', 30000);
+  expect(elapsed(game.quarters[0], 40000)).toBe(6000);
+});
 describe('Qごとの経過時間と記録', () => {
   it('制限時間がなく、中断を含めた15分後も経過時間を表示する', () => {
     const game = transition(ready, 'start', 10_000);

@@ -23,10 +23,10 @@ it('部内ゲームで両組を選び、相手組の失敗とリバウンドを�
   await user.click(screen.getByRole('button', { name: '登録を完了して試合一覧へ' }));
   await user.click(await screen.findByRole('button', { name: '新しい試合' }));
   await user.click(screen.getByRole('button', { name: '部内ゲーム' }));
-  await user.click(screen.getByRole('checkbox', { name: '7 山田を赤組にする' }));
+  await user.click(screen.getByRole('checkbox', { name: '7 山田をチーム２にする' }));
   await user.click(screen.getByRole('button', { name: 'このメンバーで確定' }));
   await user.click(await screen.findByRole('button', { name: '試合開始' }));
-  await user.click(await screen.findByRole('button', { name: '赤組を記録' }));
+  await user.click(await screen.findByRole('button', { name: 'チーム２を記録' }));
   await user.click(screen.getByRole('button', { name: 'シュート外' }));
   await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /7\s*山田/ }));
   await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '2点' }));
@@ -38,7 +38,7 @@ it('部内ゲームで両組を選び、相手組の失敗とリバウンドを�
   await user.click(await screen.findByRole('button', { name: '取消済みを確認・復元' }));
   await user.click(screen.getByRole('button', { name: 'この記録を元に戻す' }));
   await user.click(screen.getByRole('button', { name: '途中成績を見る' }));
-  await user.click(screen.getByRole('button', { name: '赤組の成績' }));
+  await user.click(screen.getByRole('button', { name: 'チーム２の成績' }));
   expect(screen.getByRole('row', { name: /7 山田 1 0 0% 0/ })).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'リバウンド', pressed: false }));
   expect(screen.getByRole('row', { name: /7 山田 1/ })).toBeTruthy();

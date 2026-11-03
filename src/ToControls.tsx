@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Dialog } from './Dialog';
-import { playLabel, periodLabel, type Game, type Play } from './domain';
+import { elapsed, playLabel, periodLabel, type Game, type Play } from './domain';
 import { checkedLabels, foulLabels, insertPlay, isToAction, periodSeconds, sheetFor, sideOf, sortPlays, validateSheet, validateToPlay, validNumber, type FoulCode, type SheetInfo, type Side, type ToAction } from './to';
 
 export function SheetFields({ value, change }: { value: SheetInfo; change: (v: SheetInfo) => void }) {
@@ -35,7 +35,7 @@ export function SheetSettings({ game, plays, teamName, busy, save, close }: { ga
 
 export function ToEditor({ game, plays, action, initial, busy, save, close }: { game: Game; plays: Play[]; action: ToAction; initial?: Play; busy: boolean; save: (p: Play) => void; close: () => void }) {
   const storageKey = `basketball-to-draft:${game.id}:${action}`;
-  const [value, setValue] = useState<Play>(() => initial ?? (() => { try { const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null'); if (saved?.value?.gameId === game.id && saved.value.action === action) return saved.value as Play; } catch { /* ignore damaged draft */ } return undefined; })() ?? { id: crypto.randomUUID(), gameId: game.id, quarter: Math.max(1, game.quarters.length + (action === 'foul' && game.status === 'interval' ? 1 : 0)), elapsedMs: Math.max(0, Date.now() - (game.quarters.at(-1)?.startedAt ?? Date.now())), playerId: action === 'timeout' ? '@team' : '', action, shot: null, createdAt: Date.now(), updatedAt: Date.now(), cancelled: false, details: action === 'foul' ? { code: 'P', penalty: '', countsTeam: true, note: '' } : action === 'timeout' ? { remainingSec: null } : {} });
+  const [value, setValue] = useState<Play>(() => initial ?? (() => { try { const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null'); if (saved?.value?.gameId === game.id && saved.value.action === action) return saved.value as Play; } catch { /* ignore damaged draft */ } return undefined; })() ?? { id: crypto.randomUUID(), gameId: game.id, quarter: Math.max(1, game.quarters.length + (action === 'foul' && game.status === 'interval' ? 1 : 0)), elapsedMs: elapsed(game.quarters.at(-1), Date.now()), playerId: action === 'timeout' ? '@team' : '', action, shot: null, createdAt: Date.now(), updatedAt: Date.now(), cancelled: false, details: action === 'foul' ? { code: 'P', penalty: '', countsTeam: true, note: '' } : action === 'timeout' ? { remainingSec: null } : {} });
   const [remaining, setRemaining] = useState(() => !initial ? (() => { try { return JSON.parse(sessionStorage.getItem(storageKey) ?? 'null')?.remaining ?? ''; } catch { return ''; } })() : initial?.details?.remainingSec != null ? `${Math.floor(initial.details.remainingSec / 60)}:${String(initial.details.remainingSec % 60).padStart(2, '0')}` : '');
   const [error, setError] = useState('');
   useEffect(() => { if (!initial) sessionStorage.setItem(storageKey, JSON.stringify({ value, remaining })); }, [initial, storageKey, value, remaining]);

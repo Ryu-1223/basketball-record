@@ -1,7 +1,7 @@
 import type { SheetInfo, ToDetails, ToAction } from './to';
 export type Player = { id: string; name: string; number: string; active: boolean };
 export type RosterPlayer = Pick<Player, 'id' | 'name' | 'number'>;
-export type Quarter = { number: number; startedAt: number; endedAt: number | null };
+export type Quarter = { number: number; startedAt: number; endedAt: number | null; pausedAt?: number | null; pausedMs?: number };
 export type Game = {
   id: string; opponent: string; date: string; roster: RosterPlayer[];
   status: 'ready' | 'running' | 'interval' | 'finished';
@@ -28,7 +28,7 @@ export function formatTime(ms: number) {
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 }
 export function elapsed(quarter: Quarter | undefined, now: number) {
-  return quarter ? Math.max(0, (quarter.endedAt ?? now) - quarter.startedAt) : 0;
+  return quarter ? Math.max(0, (quarter.pausedAt ?? quarter.endedAt ?? now) - quarter.startedAt - (quarter.pausedMs ?? 0)) : 0;
 }
 export function isShot(action: Play['action']) { return action === 'made' || action === 'miss'; }
 export function playLabel(play: Pick<Play, 'action' | 'shot' | 'details'>) {
@@ -49,12 +49,19 @@ export function validatePlayer(player: Player, others: Player[]) {
   if (!/^(?:[0-9]|[1-9][0-9]|00)$/.test(player.number)) throw new Error('背番号は0〜99、または00で入力してください。');
   if (player.active && others.some(p => p.id !== player.id && p.active && p.number === player.number)) throw new Error('この背番号は登録済みです。');
 }
-export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' | 'undoEnd' | 'finish' | 'undoFinish', now: number): Game {
+export function transition(game: Game, command: 'start' | 'endQuarter' | 'next' | 'undoEnd' | 'finish' | 'undoFinish' | 'pause' | 'resume', now: number): Game {
   const next = structuredClone(game);
   const q = next.quarters.at(-1);
   if ((command === 'start' && game.status === 'ready') || (command === 'next' && game.status === 'interval')) {
     next.quarters.push({ number: next.quarters.length + 1, startedAt: now, endedAt: null });
     next.status = 'running';
+  } else if (command === 'pause' && game.status === 'running' && q && q.pausedAt == null) {
+    if (now < q.startedAt) throw new Error('端末の時刻を確認してください。');
+    q.pausedAt = now;
+  } else if (command === 'resume' && game.status === 'running' && q && q.pausedAt != null) {
+    if (now < q.pausedAt) throw new Error('端末の時刻を確認してください。');
+    q.pausedMs = (q.pausedMs ?? 0) + now - q.pausedAt;
+    q.pausedAt = null;
   } else if (command === 'endQuarter' && game.status === 'running' && q) {
     if (now < q.startedAt) throw new Error('端末の時刻を確認してください。');
     q.endedAt = now; next.status = 'interval';
@@ -73,7 +80,7 @@ export function beginPlay(game: Game, action: Action, now: number, id: string = 
   const q = game.quarters.at(-1);
   if (game.status !== 'running' || !q) throw new Error('Qを開始してから記録してください。');
   if (now < q.startedAt) throw new Error('端末の時刻が変更されています。時刻を確認してください。');
-  return { id, gameId: game.id, quarter: q.number, elapsedMs: now - q.startedAt, action, createdAt: now };
+  return { id, gameId: game.id, quarter: q.number, elapsedMs: elapsed(q, now), action, createdAt: now };
 }
 export function completePlay(game: Game, draft: Draft, playerId: string, shot: Shot | null, now: number): Play {
   if (draft.gameId !== game.id || !((playerId === '@unknown' && draft.action === 'made') || (draft.side === 'opponent' ? game.opponentRoster?.some(p => p.id === playerId) : game.roster.some(p => p.id === playerId)))) throw new Error('この試合の選手を選んでください。');
