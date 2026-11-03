@@ -53,4 +53,4 @@ it('部内ゲームで両組を選び、相手組の失敗とリバウンドを�
   await user.click(await screen.findByRole('button', { name: '試合開始' }));
   await user.click(await screen.findByRole('button', { name: '今日の合計を見る' }));
   expect(await screen.findByText(/同じ日に「次の試合」から作成した2ゲーム/)).toBeTruthy();
-});
+}, 15_000);

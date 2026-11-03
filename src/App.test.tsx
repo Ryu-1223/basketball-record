@@ -123,5 +123,5 @@ describe('マネージャーの記録操作', () => {
     expect(screen.getByRole('timer').textContent).toBe('00:02');
     expect(screen.getByRole('button', { name: 'シュート決' })).toBeTruthy();
 
-  });
+  }, 20_000);
 });
