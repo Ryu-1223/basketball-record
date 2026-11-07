@@ -9,12 +9,13 @@ export interface Repository {
   scope: string;
   watchPlayers: (cb: (players: Player[]) => void) => Stop;
   watchGames: (limit: number, cb: (games: Game[]) => void) => Stop;
+  watchTrash: (count: number, cb: (games: Game[]) => void) => Stop;
   watchGame: (gameId: string, cb: (game: Game | undefined) => void) => Stop;
   watchPlays: (gameId: string, cb: (plays: Play[]) => void) => Stop;
   watchSync: (cb: (state: SyncState) => void) => Stop;
   savePlayer: (player: Player) => Promise<void>;
   saveGame: (game: Game) => Promise<void>;
-  deleteGame: (gameId: string) => Promise<void>;
+  deleteGame: (gameId: string, restore?: boolean) => Promise<void>;
   savePlay: (play: Play) => Promise<void>;
   savePlays: (plays: Play[]) => Promise<void>;
   close: () => Promise<void>;

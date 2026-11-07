@@ -3,7 +3,7 @@ import { getAuth, connectAuthEmulator, signInWithCustomToken, signOut, type Auth
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
   collection, doc, onSnapshot, orderBy, query, limit, setDoc, terminate, clearIndexedDbPersistence,
-  type Firestore, type DocumentData, type Query, updateDoc, getDocFromServer,
+  type Firestore, type DocumentData, type Query, where, updateDoc, getDocFromServer,
 } from 'firebase/firestore';
 import { openDB } from 'idb';
 import type { Game, Play, Player } from './domain';
@@ -60,6 +60,7 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
   const errors = new Map<string, string>();
   const pending = new Set<string>((await outbox.getAllKeys('writes')) as string[]);
   const processing = new Set<string>();
+  const generations = new Map<string, number>();
   const stops = new Set<() => void>();
   const renewals = new Set<() => void>();
   let closed = false;
@@ -90,7 +91,14 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
       const gameId = path.startsWith(`${teamPath}/games/`) ? path.split('/')[3] : null;
       let deleted = false;
       if (gameId && String((error as { code?: unknown }).code).includes('permission-denied')) {
-        try { deleted = (await getDocFromServer(doc(db, `${teamPath}/deletedGames/${gameId}`))).exists(); }
+        try {
+          deleted = (await getDocFromServer(doc(db, `${teamPath}/deletedGames/${gameId}`))).exists();
+          if (!deleted) {
+            const current = await getDocFromServer(doc(db, `${teamPath}/games/${gameId}`));
+            const queued = await outbox.get('writes', path) as QueuedWrite | undefined;
+            deleted = current.exists() && (!!current.data().trashedAt || (current.data().generation ?? 0) !== ((queued?.value as Game | Play)?.generation ?? 0));
+          }
+        }
         catch { /* Keep the write if deletion cannot be verified. */ }
       }
       if (closed) return;
@@ -122,7 +130,9 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
       snapshotPending.set(key, new Set(snapshot.docs.filter(d => d.metadata.hasPendingWrites).map(d => d.ref.path)));
       cacheStates.set(key, snapshot.metadata.fromCache);
       errors.delete(`watch:${key}`);
-      cb(snapshot.docs.map(d => d.data() as T)); notify();
+      const values = snapshot.docs.map(d => d.data() as T);
+      if (key === 'games' || key === 'trash') for (const value of values as Game[]) generations.set(value.id, value.generation ?? 0);
+      cb(values); notify();
     }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); }); };
     renewals.add(renew); renew();
     const stop = () => { renewals.delete(renew); stopSnapshot(); snapshotPending.delete(key); cacheStates.delete(key); stops.delete(stop); notify(); };
@@ -143,13 +153,28 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
     },
     saveTeamName: async name => { await updateDoc(doc(db, teamPath), { name }); },
     watchPlayers: cb => watch('players', collection(db, `${teamPath}/players`), cb),
-    watchGames: (count, cb) => watch('games', query(collection(db, `${teamPath}/games`), orderBy('date', 'desc'), limit(count)), cb),
+    watchGames: (count, cb) => {
+      let readLimit = count, stop = () => {}, active = true;
+      const subscribe = () => {
+        stop = watch<Game>('games', query(collection(db, `${teamPath}/games`), orderBy('date', 'desc'), limit(readLimit)), values => {
+          const visible = values.filter(g => !g.trashedAt);
+          cb(visible.slice(0, count));
+          if (values.length >= readLimit && visible.length < count) {
+            readLimit += Math.max(count, 30);
+            queueMicrotask(() => { if (active) { stop(); subscribe(); } });
+          }
+        });
+      };
+      subscribe(); return () => { active = false; stop(); };
+    },
+    watchTrash: (count, cb) => watch('trash', query(collection(db, `${teamPath}/games`), where('trashedAt', '>', 0), orderBy('trashedAt', 'desc'), limit(count)), cb),
     watchGame: (gameId, cb) => {
       const key = `game:${gameId}`;
       let stopSnapshot = () => {};
       const renew = () => { stopSnapshot(); stopSnapshot = onSnapshot(doc(db, `${teamPath}/games/${gameId}`), { includeMetadataChanges: true }, snapshot => {
         snapshotPending.set(key, new Set(snapshot.metadata.hasPendingWrites ? [snapshot.ref.path] : []));
         cacheStates.set(key, snapshot.metadata.fromCache); errors.delete(`watch:${key}`);
+        if (snapshot.exists()) generations.set(gameId, snapshot.data().generation ?? 0);
         cb(snapshot.exists() ? snapshot.data() as Game : undefined); notify();
       }, error => { errors.set(`watch:${key}`, readableError(error)); notify(); }); };
       renewals.add(renew); renew();
@@ -160,21 +185,21 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
     watchSync: cb => { syncListeners.add(cb); cb(state()); return () => { syncListeners.delete(cb); }; },
     savePlayer: value => save(`${teamPath}/players/${value.id}`, value),
     saveGame: value => save(`${teamPath}/games/${value.id}`, value),
-    deleteGame: async gameId => {
-      if (!navigator.onLine || state().pending || state().error) throw new Error('通信を確認し、すべて保存済みになってから削除してください。');
+    deleteGame: async (gameId, restore = false) => {
+      if (!navigator.onLine || state().pending || state().error) throw new Error('通信を確認し、すべて保存済みになってから操作してください。');
       const token = await auth.currentUser?.getIdToken();
       if (!token) throw new Error('チームに参加し直してください。');
       const response = await fetch('/api/game', {
-        method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        method: restore ? 'POST' : 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ gameId }), cache: 'no-store', signal: AbortSignal.timeout(60_000),
       });
       const result = await response.json().catch(() => null) as { deleted?: boolean; error?: string } | null;
-      if (!response.ok || !result?.deleted) throw new Error(result?.error ?? '削除の完了を確認できません。同じ試合の削除をもう一度お試しください。');
+      if (!response.ok || !result?.deleted) throw new Error(result?.error ?? '操作の完了を確認できません。一覧を確認して、同じ操作をもう一度お試しください。');
     },
-    savePlay: value => save(`${teamPath}/games/${value.gameId}/plays/${value.id}`, value),
+    savePlay: value => save(`${teamPath}/games/${value.gameId}/plays/${value.id}`, { ...value, ...(generations.get(value.gameId) ? { generation: generations.get(value.gameId) } : {}) }),
     savePlays: async values => {
       // Persist the entire reorder locally before starting any network writes.
-      const entries = values.map(value => ({ path: `${teamPath}/games/${value.gameId}/plays/${value.id}`, value, version: crypto.randomUUID() }));
+      const entries = values.map(value => ({ path: `${teamPath}/games/${value.gameId}/plays/${value.id}`, value: { ...value, ...(generations.get(value.gameId) ? { generation: generations.get(value.gameId) } : {}) }, version: crypto.randomUUID() }));
       const tx = outbox.transaction('writes', 'readwrite');
       for (const entry of entries) void tx.store.put(entry);
       await tx.done;

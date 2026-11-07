@@ -6,7 +6,7 @@ export type Game = {
   id: string; opponent: string; date: string; roster: RosterPlayer[];
   status: 'ready' | 'running' | 'interval' | 'finished';
   recordChecked?: { own?: { shots?: boolean; rebound?: boolean; steal?: boolean }; opponent?: { shots?: boolean; rebound?: boolean; steal?: boolean } };
-  kind?: 'scrimmage'; recordMode?: 'scores' | 'own' | 'both'; opponentRoster?: (RosterPlayer & { memberId: string })[]; sessionId?: string; archived?: boolean;
+  kind?: 'scrimmage'; recordMode?: 'scores' | 'own' | 'both'; opponentRoster?: (RosterPlayer & { memberId: string })[]; sessionId?: string; archived?: boolean; generation?: number; trashedAt?: number; expiresAt?: number;
   quarters: Quarter[]; createdAt: number; updatedAt: number; opponentTracking?: boolean; sheet?: SheetInfo;
 };
 export const actionLabels = {
@@ -19,6 +19,7 @@ export type Play = {
   playerId: string; action: Action | ToAction; shot: Shot | null;
   createdAt: number; updatedAt: number; cancelled: boolean; side?: 'opponent';
   details?: ToDetails;
+  generation?: number;
   order?: number;
 };
 export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string; side?: 'opponent' };

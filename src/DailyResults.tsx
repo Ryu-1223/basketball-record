@@ -5,7 +5,7 @@ import { Results, score } from './Results';
 
 // Only games in the same explicitly created session and date are combined.
 export function DailyResults({ game, games, repo }: { game: Game; games: Game[]; repo: Repository }) {
-  const matches = games.filter(g => g.sessionId && g.sessionId === game.sessionId && g.date === game.date && !g.archived);
+  const matches = games.filter(g => g.sessionId && g.sessionId === game.sessionId && g.date === game.date && !g.trashedAt);
   const key = matches.map(g => g.id).sort().join(',');
   const [records, setRecords] = useState<Record<string, Play[]>>({});
   useEffect(() => {

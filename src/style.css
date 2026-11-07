@@ -37,6 +37,8 @@ p { line-height: 1.75; margin: 8px 0; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .row h2 { margin: 0; }
 .game-list { display: flex; flex-direction: column; gap: 10px; }
+.game-list > div { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.game-list > div > .quiet { align-self: flex-end; min-width: 110px; }
 .game-card { display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: left; padding: 17px 18px; border-color: var(--line); }
 .opponent { font-size: 19px; font-weight: 750; overflow-wrap: anywhere; }
 .tag { display: inline-block; border: 1px solid #d1d9d1; border-radius: 4px; font-size: 11px; padding: 2px 7px; white-space: nowrap; font-weight: 600; }

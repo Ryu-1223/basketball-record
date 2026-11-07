@@ -9,7 +9,7 @@ vi.mock('firebase/auth', () => ({ getAuth: () => ({ currentUser: { getIdToken: b
 vi.mock('firebase/firestore', () => ({
   initializeFirestore: () => ({}), persistentLocalCache: () => ({}), persistentMultipleTabManager: () => ({}),
   connectFirestoreEmulator: vi.fn(), collection: vi.fn(), doc: (_db: unknown, path: string) => ({ path }),
-  onSnapshot: backend.subscribe, orderBy: vi.fn(), query: vi.fn(), limit: vi.fn(),
+  onSnapshot: backend.subscribe, where: vi.fn(), orderBy: vi.fn(), query: vi.fn(), limit: vi.fn(),
   getDocFromServer: backend.marker, setDoc: backend.save, terminate: vi.fn(), clearIndexedDbPersistence: vi.fn(),
 }));
 beforeAll(() => {
@@ -81,4 +81,26 @@ it('削除要求には認証トークンを付け、失敗を成功として扱�
   fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: '削除できません' }), { status: 503 }));
   await expect(repo.deleteGame('target')).rejects.toThrow('削除できません');
   fetch.mockRestore(); await repo.close();
+});
+
+it('復元は認証付きPOSTで実行し、失敗時は完了として扱わない', async () => {
+  const { createCloudRepository } = await import('./firebaseRepository');
+  const repo = await createCloudRepository(crypto.randomUUID(), 'queue-test');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true, restored: true })));
+  await repo.deleteGame('target', true);
+  expect(fetch).toHaveBeenCalledWith('/api/game', expect.objectContaining({ method: 'POST' }));
+  fetch.mockRestore(); await repo.close();
+});
+
+it('復元後に世代が変わった試合の古い送信待ちは再送せず、確認できない場合は保持する', async () => {
+  const { createCloudRepository } = await import('./firebaseRepository');
+  backend.marker.mockResolvedValueOnce({ exists: () => false }).mockResolvedValueOnce({ exists: () => true, data: () => ({ generation: 1 }) } as never);
+  backend.save.mockRejectedValueOnce({ code: 'permission-denied' });
+  const repo = await createCloudRepository(crypto.randomUUID(), 'queue-test');
+  let state: SyncState = { pending: 0, error: null, fromCache: false };
+  repo.watchSync(value => { state = value; });
+  await repo.savePlay({ id: 'stale-generation', gameId: 'restored', playerId: 'p', action: 'made', shot: '2', quarter: 1, elapsedMs: 0, cancelled: false, createdAt: 1, updatedAt: 1 });
+  await expect.poll(() => state.pending).toBe(0);
+  expect(state.error).toBeNull();
+  await repo.close();
 });

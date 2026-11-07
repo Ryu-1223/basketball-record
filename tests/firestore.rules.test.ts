@@ -125,3 +125,23 @@ it('削除済み試合は古い端末から再作成・訂正できず、削除�
   await assertFails(deleteDoc(doc(db, 'teams/basketball/deletedGames/deleted')));
   await assertSucceeds(getDoc(doc(db, 'teams/basketball/deletedGames/deleted')));
 });
+
+it('ゴミ箱の記録を編集・復元・期限偽造できず、復元後も古い世代の書き込みを拒否する', async () => {
+  const path = 'teams/basketball/games/trash-rule';
+  const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), path), { ...game, id: 'trash-rule', generation: 1, trashedAt: 100, expiresAt: 200 });
+  });
+  await assertSucceeds(getDoc(doc(db, path)));
+  await assertFails(updateDoc(doc(db, path), { opponent: '変更' }));
+  await assertFails(setDoc(doc(db, path), { ...game, id: 'trash-rule' }));
+  await assertFails(setDoc(doc(db, `${path}/plays/play`), { ...play, gameId: 'trash-rule', generation: 1 }));
+  await assertFails(setDoc(doc(db, '_gameTrash/forged'), { expiresAt: 1 }));
+  await environment.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), path), { ...game, id: 'trash-rule', generation: 1 }));
+  await assertFails(setDoc(doc(db, path), { ...game, id: 'trash-rule' }));
+  await assertFails(setDoc(doc(db, `${path}/plays/play`), { ...play, gameId: 'trash-rule' }));
+  await assertSucceeds(setDoc(doc(db, `${path}/plays/play`), { ...play, gameId: 'trash-rule', generation: 1 }));
+  await assertSucceeds(updateDoc(doc(db, path), { opponent: '復元後の変更' }));
+  await assertFails(updateDoc(doc(db, path), { generation: 2 }));
+  await assertFails(updateDoc(doc(db, path), { trashedAt: 100, expiresAt: 200 }));
+});

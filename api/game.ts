@@ -5,8 +5,8 @@ import { TeamError } from '../server/team-service.js';
 
 export default async function handler(request: TeamRequest, response: TeamResponse) {
   response.setHeader('Cache-Control', 'no-store');
-  if (request.method !== 'DELETE') {
-    response.setHeader('Allow', 'DELETE');
+  if (!['DELETE', 'POST'].includes(request.method ?? '')) {
+    response.setHeader('Allow', 'DELETE, POST');
     return response.status(405).json({ error: 'この操作は利用できません。' });
   }
   const origin = request.headers.origin;
@@ -23,8 +23,8 @@ export default async function handler(request: TeamRequest, response: TeamRespon
     const { db, auth } = getBackend();
     const token = await auth.verifyIdToken(authorization.slice(7));
     if (typeof token.teamId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(token.teamId)) return response.status(403).json({ error: 'このチームの試合は削除できません。' });
-    await deleteGame(db, token.uid, token.teamId, gameId);
-    return response.status(200).json({ deleted: true });
+    await deleteGame(db, token.uid, token.teamId, gameId, request.method === 'POST');
+    return response.status(200).json({ deleted: true, restored: request.method === 'POST' });
   } catch (error) {
     if (error instanceof TeamError) return response.status(error.status).json({ error: error.message });
     const code = String((error as { code?: unknown }).code ?? '');
