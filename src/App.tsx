@@ -324,6 +324,7 @@ function GameScreen({ game, players, games, prepareNext, repo, now, busy, run, b
   sessionStorage.setItem(storedGenerationKey, String(game.generation ?? 0));
   const [plays, setPlays] = useState<Play[]>([]);
   const [draft, setDraft] = useState<Draft | null>(() => readDraft(game.id, repo.scope));
+  const actionFocus = useRef<HTMLButtonElement | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [recordSide, setRecordSide] = useState<'own' | 'opponent'>('own');
   const [editing, setEditing] = useState<Play | null>(null);
@@ -417,7 +418,7 @@ function GameScreen({ game, players, games, prepareNext, repo, now, busy, run, b
     {game.status !== 'finished' && <>
       {game.kind === 'scrimmage' && <p role="status">記録先：{recordSide === 'own' ? game.sheet?.own.name || 'チーム１' : game.opponent}。{game.recordMode === 'scores' || (game.recordMode === 'own' && recordSide === 'opponent') ? 'このチームは得点だけ記録します。' : ''}</p>}
       {game.kind === 'scrimmage' && <div className="result-tabs"><button aria-pressed={recordSide === 'own'} onClick={() => setRecordSide('own')}>{game.sheet?.own.name || "白組"}を記録</button><button aria-pressed={recordSide === 'opponent'} onClick={() => setRecordSide('opponent')}>{game.opponent}を記録</button></div>}
-      <div className="action-grid">{(Object.keys(actionLabels) as Action[]).map(action => <button key={action} className={`action action-${action}`} disabled={game.status !== 'running' || busy || inconsistentClock || (game.kind === 'scrimmage' && action !== 'made' && (game.recordMode === 'scores' || (game.recordMode === 'own' && recordSide === 'opponent')))} onClick={() => capture(action)}>{actionLabels[action]}</button>)}</div>
+      <div className="action-grid">{(Object.keys(actionLabels) as Action[]).map(action => <button key={action} className={`action action-${action}`} disabled={game.status !== 'running' || busy || inconsistentClock || (game.kind === 'scrimmage' && action !== 'made' && (game.recordMode === 'scores' || (game.recordMode === 'own' && recordSide === 'opponent')))} onClick={event => { actionFocus.current = event.currentTarget; capture(action); }}>{actionLabels[action]}</button>)}</div>
       {game.kind !== 'scrimmage' && <button className="full opponent-action" disabled={game.status !== 'running' || busy || inconsistentClock} onClick={() => { setOpponentDraft(beginPlay(game, 'made', Date.now())); setOpponentNumber(''); setAddingNumber(false); }}>相手のシュート決</button>}
       <div className="to-actions">{(['foul', 'timeout', 'entry'] as const).map(a => <button key={a} disabled={busy || !playsLoaded || (a !== 'foul' && game.status !== 'running')} onClick={() => setToAction(a)}>{a === 'foul' ? 'ファウル' : a === 'timeout' ? 'タイムアウト' : 'Player in'}</button>)}</div>
       {game.status === 'ready' && <p className="muted small center">試合開始後に記録できます。</p>}
@@ -444,7 +445,7 @@ function GameScreen({ game, players, games, prepareNext, repo, now, busy, run, b
       {!canDelete && <p role="status">通信を確認し、「すべて保存済み」になってから操作してください。</p>}
       <div className="stack"><button className="danger" disabled={busy || !canDelete} onClick={() => { void run(async () => { await repo.deleteGame(game.id); onDeleted(); }); }}>{busy ? '移動中…' : 'ゴミ箱へ移す'}</button><button disabled={busy} onClick={() => setConfirmDelete(false)}>移動せず戻る</button></div>
     </Dialog>}
-    {draft && !alreadySaved && <Dialog focusTitle title={draft.playerId && isShot(draft.action) ? 'シュートの種類' : '選手を選ぶ'} onClose={() => setDraft(null)}>
+    {draft && !alreadySaved && <Dialog focusTitle returnFocus={actionFocus} title={draft.playerId && isShot(draft.action) ? 'シュートの種類' : '選手を選ぶ'} onClose={() => setDraft(null)}>
       <div className="draft-summary"><strong>{actionLabels[draft.action]}</strong><span>{periodLabel(game, draft.quarter)}・{formatTime(draft.elapsedMs)}</span></div>
       <p className="muted small">この時刻で記録します。{game.status === 'running' && `現在 ${formatTime(elapsed(q, now))}`}</p>
       {game.status !== 'running' || draft.quarter !== q?.number ? <div className="error">Qの状態が変わっています。閉じてから記録し直してください。</div> : draft.playerId && isShot(draft.action) ? <div className="stack"><p className="selected-player">{draft.playerId === '@unknown' ? '選手不明' : `${draftRoster.find(p => p.id === draft.playerId)?.number ?? ''} ${draftRoster.find(p => p.id === draft.playerId)?.name ?? ''}`}</p>{(['2', '3', 'ft'] as Shot[]).map(shot => <button key={shot} className="shot-choice" disabled={busy} onClick={() => save(draft.playerId!, shot)}>{shot === 'ft' ? 'フリースロー' : `${shot}点`}</button>)}<button className="quiet" onClick={() => setDraft({ ...draft, playerId: undefined })}>選手を選び直す</button></div> : <div className="player-grid">{sortPlayers(draftRoster).map(p => <button key={p.id} disabled={busy} className="player-choice" onClick={() => { if (isShot(draft.action)) setDraft({ ...draft, playerId: p.id }); else save(p.id, null); }}><strong>{p.number}</strong><span>{p.name}</span></button>)}</div>}

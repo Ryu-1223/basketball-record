@@ -134,8 +134,12 @@ describe('マネージャーの記録操作', () => {
     expect(screen.getByRole('timer').textContent).toBe('00:01');
     now += 331_000;
     await user.click(screen.getByRole('button', { name: 'シュート決' }));
-    const playerDialog = screen.getByRole('dialog');
+    let playerDialog = screen.getByRole('dialog');
     expect(document.activeElement).toBe(within(playerDialog).getByRole('heading', { name: '選手を選ぶ' }));
+    await user.click(within(playerDialog).getByRole('button', { name: '記録せず戻る' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'シュート決' })));
+    await user.click(screen.getByRole('button', { name: 'シュート決' }));
+    playerDialog = screen.getByRole('dialog');
     const shotGrid = playerDialog.querySelector('.player-grid')!;
     expect(within(shotGrid as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['7田中']);
     expect(shotGrid.contains(within(playerDialog).getByRole('button', { name: '選手不明' }))).toBe(false);
