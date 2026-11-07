@@ -148,6 +148,7 @@ describe('マネージャーの記録操作', () => {
     await user.click(within(playerDialog).getByRole('button', { name: /7\s*田中/ }));
     await user.dblClick(within(playerDialog).getByRole('button', { name: '3点' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'シュート決' })));
     const list = screen.getByRole('list');
     await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(1));
     expect(within(list).getByText('05:32')).toBeTruthy();

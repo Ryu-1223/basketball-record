@@ -206,3 +206,11 @@ dialog:has(.player-grid) { margin-top: 16px; }
 .roster-row .player-name { min-width: 100px; }
 summary { min-height: 48px; line-height: 1.5; padding-block: 12px; }
 @media (max-width: 360px) { .shot-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.game-active .action { min-height: 60px; }
+.game-active .action-grid { gap: 8px; }
+.game-active .back, .game-active .opponent-action, .result-tabs button, .dialog-head button { min-height: 48px; }
+.main-tabs button, .to-actions button { overflow-wrap: normal; }
+.record-target { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.player-choice span { font-size: 16px; }
+.small, .main-tabs button { font-size: 14px; }
+.game-active .time { font-size: 28px; }

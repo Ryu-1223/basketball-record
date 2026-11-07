@@ -3,9 +3,9 @@ export function Dialog({ title, children, onClose, focusTitle = false, returnFoc
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const element = ref.current!; element.showModal();
-    if (focusTitle) element.querySelector<HTMLElement>('.dialog-head h2')?.focus();
     return () => { element.close(); if (returnFocus) queueMicrotask(() => { if (returnFocus.current?.isConnected) returnFocus.current.focus(); }); };
-  }, [focusTitle, returnFocus]);
+  }, [returnFocus]);
+  useEffect(() => { if (focusTitle) ref.current?.querySelector<HTMLElement>('.dialog-head h2')?.focus(); }, [focusTitle, title]);
   return <dialog ref={ref} aria-labelledby="dialog-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <div className="dialog-head"><h2 id="dialog-title" tabIndex={focusTitle ? -1 : undefined}>{title}</h2><button onClick={onClose} aria-label="閉じる">閉じる</button></div>
     {children}
