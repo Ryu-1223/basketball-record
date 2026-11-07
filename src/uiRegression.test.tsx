@@ -41,3 +41,20 @@ it.each(['scores', 'own', 'both'] as const)('部内ゲームの記録範囲 %s �
   await waitFor(() => expect(screen.getAllByRole('status').map(e => e.textContent).join(' ')).toContain('保存を確認してください'));
   expect(screen.queryByText('すべて保存済み')).toBeNull();
 });
+
+it('長い経過時間と3桁得点を同時に表示し、記録操作を利用できる', async () => {
+  await deleteDB('basketball-record-local');
+  const repo = await createLocalRepository();
+  const game: Game = { id: 'large-score', opponent: '試用相手', date: '2026-11-07', status: 'running', roster: [{ id: 'p1', number: '99', name: '試用選手' }], quarters: [{ number: 1, startedAt: 1000, endedAt: null, pausedAt: 6001000 }], opponentTracking: true, createdAt: 1, updatedAt: 1 };
+  await repo.saveGame(game);
+  for (let i = 0; i < 50; i++) await repo.savePlay({ id: `score-${i}`, gameId: game.id, quarter: 1, elapsedMs: i * 1000, playerId: 'p1', action: 'made', shot: '2', cancelled: false, createdAt: i + 1, updatedAt: i + 1 });
+  await repo.close();
+  localStorage.setItem('basketball-current-game:local', game.id);
+  const user = userEvent.setup(); render(<App />);
+  await user.click(screen.getByRole('button', { name: 'チームを作成' }));
+  await user.click(screen.getByRole('button', { name: 'この端末で試す' }));
+  await screen.findByText(/自チーム 100/);
+  expect(screen.getByRole('timer').textContent).toBe('100:00');
+  expect((screen.getByRole('button', { name: 'シュート決' }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.getByRole('button', { name: '再開' })).toBeTruthy();
+});
