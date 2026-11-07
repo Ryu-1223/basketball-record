@@ -135,6 +135,9 @@ describe('マネージャーの記録操作', () => {
     now += 331_000;
     await user.click(screen.getByRole('button', { name: 'シュート決' }));
     const playerDialog = screen.getByRole('dialog');
+    const shotGrid = playerDialog.querySelector('.player-grid')!;
+    expect(within(shotGrid as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['7田中']);
+    expect(shotGrid.contains(within(playerDialog).getByRole('button', { name: '選手不明' }))).toBe(false);
     expect(within(playerDialog).getByText('第1Q・05:32')).toBeTruthy();
     now += 5_000;
     await user.click(within(playerDialog).getByRole('button', { name: /7\s*田中/ }));

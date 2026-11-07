@@ -177,3 +177,32 @@ th:first-child { text-align: left; overflow-wrap: anywhere; }
 @media print { .main-tabs { display: none; } }
 
 .main-tabs small { display: block; font-size: 10px; font-weight: 500; }
+
+/* 小さな画面でも操作の意味と選手の並びを保つ。 */
+.main-tabs button, .to-actions button { word-break: keep-all; overflow-wrap: normal; }
+.to-actions button { min-width: 0; }
+.finished-actions { margin: 8px 0; }
+.game-finished .app-header { padding-block: 4px; }
+.game-finished .sync-bar { min-height: 30px; padding-block: 4px; }
+.game-finished .back { margin: 2px 0; }
+.game-finished .game-heading { margin: 2px 0; }
+.game-finished .game-heading p, .game-finished .game-heading h1 { margin: 2px 0; }
+.game-finished .game-heading h1 { font-size: 19px; }
+.game-finished .score { margin: 2px 0; }
+.game-finished .result-tabs { margin-block: 6px; }
+.game-active .clock-running { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(96px, 1fr); align-items: center; gap: 6px; }
+.clock-running .clock-top { flex-direction: column; align-items: flex-start; }
+.clock-running .time { font-variant-numeric: tabular-nums; }
+.clock-running button { padding-inline: 6px; }
+.results { padding: 12px; margin-block: 8px; }
+.results h2 { margin-bottom: 8px; }
+.result-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.shot-filters { display: grid; grid-template-columns: 1fr 1fr 1fr 1.8fr; }
+.result-categories button, .shot-filters button { min-height: 48px; }
+.result-tabs button[aria-pressed="true"] { border: 2px solid #234b39; }
+.unknown-player { margin-top: 16px; }
+dialog:has(.player-grid) { margin-top: 16px; }
+.roster-row { flex-wrap: wrap; }
+.roster-row .player-name { min-width: 100px; }
+summary { min-height: 48px; line-height: 1.5; padding-block: 12px; }
+@media (max-width: 360px) { .shot-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
