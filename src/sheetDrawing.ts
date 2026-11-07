@@ -234,11 +234,17 @@ export function buildSheetPages(game: Game, plays: Play[], kind: OutputKind = 'a
       startPage();
       const rows = [...team.players.map(player => ({ name: `${player.number} ${player.name}`, id: player.id })), { name: 'チーム合計', id: null }];
       for (const row of rows) {
-        if (y > 270) { add(p, '選手別成績'); p = new Pen(); y = 32; startPage(); }
+        // Long names must stay readable on paper instead of shrinking to fit one line.
+        const nameChars = [...row.name];
+        const nameLines: string[] = [];
+        while (nameChars.length) nameLines.push(nameChars.splice(0, full ? 18 : 24).join(''));
+        const rowHeight = Math.max(9, nameLines.length * 4 + 2);
+        if (y + rowHeight > 278) { add(p, '選手別成績'); p = new Pen(); y = 32; startPage(); }
         const selected = plays.filter(e => !e.cancelled && sideOf(e) === side && (row.id === null || e.playerId === row.id));
         const cells = [row.name, ...(['2', '3', 'ft'] as const).map(shot => { const made = selected.filter(e => e.action === 'made' && e.shot === shot).length; const attempts = selected.filter(e => ['made', 'miss'].includes(e.action) && e.shot === shot).length; return full ? `${made} / ${attempts}` : String(made); }), String(selected.reduce((n, e) => n + points(e), 0)), ...(full ? [String(selected.filter(e => e.action === 'rebound').length), String(selected.filter(e => e.action === 'steal').length)] : [])];
-        cells.forEach((cell, i) => p.text(xs[i] + 1, y + 5, cell, 2.8, xs[i + 1] - xs[i] - 2));
-        p.line(10, y + 7, 200, y + 7); y += 9;
+        nameLines.forEach((line, i) => p.text(xs[0] + 1, y + 5 + i * 4, line, 2.8, xs[1] - xs[0] - 2));
+        cells.slice(1).forEach((cell, i) => p.text(xs[i + 1] + 1, y + 5, cell, 2.8, xs[i + 2] - xs[i + 1] - 2));
+        p.line(10, y + rowHeight - 2, 200, y + rowHeight - 2); y += rowHeight;
       }
       if (!team.checked.score || !full) p.text(10, y + 8, full ? '得点は未確認のため、記録された分の集計です。' : '得点のみ記録。シュート失敗・リバウンド等は未集計です。', 2.7, 190);
       add(p, '選手別成績');

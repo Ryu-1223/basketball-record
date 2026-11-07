@@ -88,6 +88,15 @@ describe('TO記録と帳票', () => {
     const texts = pages[1].shapes.filter(s => s.kind === 'text').map(s => s.text);
     expect(texts).toContain('2点 成功/試投'); expect(texts).toContain('0 / 1'); expect(texts).toContain('REB');
   });
+  it('長い選手名は成績表で読める大きさに保ち、複数行に折り返す', () => {
+    const g = gameFixture();
+    const name = '長'.repeat(40);
+    g.sheet!.own.players[0].name = name;
+    const pages = buildSheetPages(g, [], 'stats');
+    const pieces = pages.flatMap(p => p.shapes).filter(s => s.kind === 'text' && s.text.includes('長'));
+    expect(pieces.map(s => s.kind === 'text' ? s.text : '').join('')).toContain(name);
+    expect(pieces.every(s => s.kind === 'text' && s.size >= 2.8)).toBe(true);
+  });
   it('日本語フォント埋め込み済みのA4 PDFを再読込できる', async () => {
     const pages = buildSheetPages(gameFixture(), samplePlays());
     const bytes = await createSheetPdf(pages, new Uint8Array(readFileSync('public/fonts/NotoSansJP.ttf')));
