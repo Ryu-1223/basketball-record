@@ -1,5 +1,7 @@
 # UI改善の実装と検証状況
 
+最新の公開状況：568ad01を本番へ反映し、公開サイトで検証済み。詳細は[本番反映・検証記録](production-verification-20261107.md)。以下の「本番未反映」は追加確認時点の履歴であり、現在の状態ではない。
+
 2026-11-07。基準は output/ui-audit/ui-specification.md と implementation-conformance-review.md。
 
 ## 実装した残件
