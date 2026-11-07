@@ -214,3 +214,8 @@ summary { min-height: 48px; line-height: 1.5; padding-block: 12px; }
 .player-choice span { font-size: 16px; }
 .small, .main-tabs button { font-size: 14px; }
 .game-active .time { font-size: 28px; }
+/* 計画で決めた余白と操作間隔。 */
+.shell { padding-inline: 16px; }
+@media (max-width: 360px) { .shell { padding-inline: 12px; } }
+dialog:has(.player-grid) { padding: 12px; }
+.game-active .to-actions, .result-tabs { gap: 8px; }
