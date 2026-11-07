@@ -112,3 +112,16 @@ describe('部活のアクセス制御', () => {
     await assertFails(getDocs(collection(db, '_teamAccessAttempts')));
   });
 });
+
+it('削除済み試合は古い端末から再作成・訂正できず、削除印も偽造できない', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'teams/basketball/deletedGames/deleted'), { deletedAt: 1 });
+    await setDoc(doc(context.firestore(), 'teams/basketball/games/deleted'), { ...game, id: 'deleted' });
+  });
+  const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+  await assertFails(setDoc(doc(db, 'teams/basketball/games/deleted'), { ...game, id: 'deleted' }));
+  await assertFails(setDoc(doc(db, 'teams/basketball/games/deleted/plays/play'), { ...play, gameId: 'deleted' }));
+  await assertFails(setDoc(doc(db, 'teams/basketball/deletedGames/forged'), { deletedAt: 1 }));
+  await assertFails(deleteDoc(doc(db, 'teams/basketball/deletedGames/deleted')));
+  await assertSucceeds(getDoc(doc(db, 'teams/basketball/deletedGames/deleted')));
+});

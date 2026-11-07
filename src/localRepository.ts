@@ -39,6 +39,15 @@ export async function createLocalRepository(name = 'basketball-record-local'): P
     watchPlays: (gameId, cb) => watch(async () => ((await db.getAll('plays')) as Play[]).filter(p => p.gameId === gameId), cb),
     watchSync: cb => { syncWatchers.add(cb); cb(sync); return () => { syncWatchers.delete(cb); }; },
     savePlayer: value => save('players', value), saveGame: value => save('games', value), savePlay: value => save('plays', value),
+    deleteGame: async gameId => {
+      const tx = db.transaction(['games', 'plays'], 'readwrite');
+      for (const play of await tx.objectStore('plays').getAll() as Play[]) {
+        if (play.gameId === gameId) await tx.objectStore('plays').delete(play.id);
+      }
+      await tx.objectStore('games').delete(gameId);
+      await tx.done;
+      notify(); channel?.postMessage('change');
+    },
     savePlays: async values => {
       const tx = db.transaction('plays', 'readwrite');
       for (const value of values) void tx.store.put(value);

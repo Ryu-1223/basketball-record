@@ -7,6 +7,7 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)).data.enabled == true;
     }
+    function notDeleted(team, game) { return !exists(/databases/$(database)/documents/teams/$(team)/deletedGames/$(game)); }
     function text(value, max) { return value is string && value.size() > 0 && value.size() <= max; }
     function optionalText(value, max) { return value is string && value.size() <= max; }
     function validSheetTeam(t) {
@@ -78,15 +79,19 @@ service cloud.firestore {
         allow create, update: if member(team) && validPlayer(id);
         allow delete: if false;
       }
+      match /deletedGames/{game} {
+        allow read: if member(team);
+        allow write: if false;
+      }
       match /games/{game} {
         allow read: if member(team);
-        allow create: if member(team) && validGame(game);
-        allow update: if member(team) && validGame(game) && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.roster.size() >= resource.data.roster.size();
+        allow create: if member(team) && notDeleted(team, game) && validGame(game);
+        allow update: if member(team) && notDeleted(team, game) && validGame(game) && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.roster.size() >= resource.data.roster.size();
         allow delete: if false;
         match /plays/{id} {
           allow read: if member(team);
-          allow create: if member(team) && validPlay(team, game, id);
-          allow update: if member(team) && validPlay(team, game, id) && request.resource.data.createdAt == resource.data.createdAt;
+          allow create: if member(team) && notDeleted(team, game) && validPlay(team, game, id);
+          allow update: if member(team) && notDeleted(team, game) && validPlay(team, game, id) && request.resource.data.createdAt == resource.data.createdAt;
           allow delete: if false;
         }
       }

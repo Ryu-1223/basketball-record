@@ -14,6 +14,7 @@ export interface Repository {
   watchSync: (cb: (state: SyncState) => void) => Stop;
   savePlayer: (player: Player) => Promise<void>;
   saveGame: (game: Game) => Promise<void>;
+  deleteGame: (gameId: string) => Promise<void>;
   savePlay: (play: Play) => Promise<void>;
   savePlays: (plays: Play[]) => Promise<void>;
   close: () => Promise<void>;

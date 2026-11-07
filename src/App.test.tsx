@@ -29,6 +29,34 @@ describe('マネージャーの記録操作', () => {
     expect(await screen.findByRole('button', { name: '新しい試合' })).toBeTruthy();
     expect(localStorage.getItem('basketball-current-game:local')).toBeNull();
   });
+  it('試合削除は確認後だけ実行され、プレーも削除し他の試合と名簿は残す', async () => {
+    await deleteDB('basketball-record-local');
+    const repo = await createLocalRepository();
+    const game = { id: 'delete-target', opponent: '削除する相手', date: '2026-11-07', roster: [{ id: 'p', name: '選手', number: '1' }], quarters: [], status: 'ready' as const, createdAt: 1, updatedAt: 1 };
+    await repo.savePlayer({ id: 'p', number: '1', name: '選手', active: true });
+    await repo.saveGame(game);
+    await repo.saveGame({ ...game, id: 'keep', opponent: '残す相手' });
+    await repo.savePlay({ id: 'play-to-delete', gameId: game.id, playerId: 'p', action: 'made', shot: '2', quarter: 1, elapsedMs: 0, cancelled: false, createdAt: 1, updatedAt: 1 });
+    await repo.close();
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole('button', { name: 'チームを作成' }));
+    await user.click(screen.getByRole('button', { name: 'この端末で試す' }));
+    await user.click(await screen.findByRole('button', { name: /削除する相手/ }));
+    await user.click(screen.getByText('試合の管理', { exact: true }));
+    await user.click(screen.getByRole('button', { name: 'この試合を削除する' }));
+    expect(within(screen.getByRole('dialog')).getByText(/削除する相手/)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '削除せず戻る' }));
+    expect(screen.getByRole('button', { name: '試合開始' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'この試合を削除する' }));
+    await user.click(screen.getByRole('button', { name: 'この試合を完全に削除' }));
+    await screen.findByRole('button', { name: /残す相手/ });
+    expect(screen.queryByRole('button', { name: /削除する相手/ })).toBeNull();
+    const check = await createLocalRepository();
+    const plays = await new Promise<import('./domain').Play[]>(resolve => { const stop = check.watchPlays(game.id, value => { stop(); resolve(value); }); });
+    const players = await new Promise<import('./domain').Player[]>(resolve => { const stop = check.watchPlayers(value => { stop(); resolve(value); }); });
+    expect(plays).toHaveLength(0); expect(players).toHaveLength(1);
+    await check.close();
+  }, 20_000);
   it('試合準備から選手登録しても入力した対戦相手と日付を保持する', async () => {
     await deleteDB('basketball-record-local');
     const user = userEvent.setup(); render(<App />);

@@ -3,14 +3,14 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Play } from './domain';
 import type { SyncState } from './repository';
 
-const backend = vi.hoisted(() => ({ save: vi.fn(), refresh: vi.fn(), subscribe: vi.fn(() => vi.fn()) }));
+const backend = vi.hoisted(() => ({ save: vi.fn(), refresh: vi.fn(), subscribe: vi.fn(() => vi.fn()), marker: vi.fn(async () => ({ exists: (): boolean => false })) }));
 vi.mock('firebase/app', () => ({ initializeApp: () => ({}) }));
 vi.mock('firebase/auth', () => ({ getAuth: () => ({ currentUser: { getIdToken: backend.refresh } }), connectAuthEmulator: vi.fn(), signInWithCustomToken: vi.fn(), signOut: vi.fn() }));
 vi.mock('firebase/firestore', () => ({
   initializeFirestore: () => ({}), persistentLocalCache: () => ({}), persistentMultipleTabManager: () => ({}),
   connectFirestoreEmulator: vi.fn(), collection: vi.fn(), doc: (_db: unknown, path: string) => ({ path }),
   onSnapshot: backend.subscribe, orderBy: vi.fn(), query: vi.fn(), limit: vi.fn(),
-  setDoc: backend.save, terminate: vi.fn(), clearIndexedDbPersistence: vi.fn(),
+  getDocFromServer: backend.marker, setDoc: backend.save, terminate: vi.fn(), clearIndexedDbPersistence: vi.fn(),
 }));
 beforeAll(() => {
   for (const name of ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_AUTH_DOMAIN', 'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID']) vi.stubEnv(name, 'queue-test');
@@ -52,7 +52,33 @@ it('認証を更新して、権限エラーで停止した監視を再登録す�
   expect(backend.refresh).toHaveBeenCalledWith(true);
   expect(backend.subscribe.mock.calls.length).toBeGreaterThan(count);
   const renewed = backend.subscribe.mock.calls.at(-1) as unknown as [unknown, unknown, (snapshot: unknown) => void];
-  renewed[2]({ metadata: { hasPendingWrites: false, fromCache: false }, exists: () => false });
+  renewed[2]({ metadata: { hasPendingWrites: false, fromCache: false }, exists: (): boolean => false });
   expect(state.error).toBeNull();
   stop(); await repo.close();
+});
+
+it('削除済みとサーバーで確認できた試合の古い入力は再送待ちから外す', async () => {
+  const { createCloudRepository } = await import('./firebaseRepository');
+  backend.marker.mockResolvedValueOnce({ exists: () => true });
+  backend.save.mockRejectedValueOnce({ code: 'permission-denied' });
+  const repo = await createCloudRepository(crypto.randomUUID(), 'queue-test');
+  let state: SyncState = { pending: 0, error: null, fromCache: false };
+  repo.watchSync(value => { state = value; });
+  await repo.savePlay({ id: 'obsolete', gameId: 'gone', playerId: 'p', action: 'made', shot: '2', quarter: 1, elapsedMs: 0, cancelled: false, createdAt: 1, updatedAt: 1 });
+  await expect.poll(() => state.pending).toBe(0);
+  expect(state.error).toBeNull();
+  expect(backend.marker).toHaveBeenLastCalledWith({ path: 'teams/queue-test/deletedGames/gone' });
+  await repo.close();
+});
+
+it('削除要求には認証トークンを付け、失敗を成功として扱わない', async () => {
+  const { createCloudRepository } = await import('./firebaseRepository');
+  const repo = await createCloudRepository(crypto.randomUUID(), 'queue-test');
+  backend.refresh.mockResolvedValue('test-id-token');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true }), { status: 200 }));
+  await repo.deleteGame('target');
+  expect(fetch).toHaveBeenCalledWith('/api/game', expect.objectContaining({ method: 'DELETE', headers: expect.objectContaining({ Authorization: 'Bearer test-id-token' }), body: JSON.stringify({ gameId: 'target' }) }));
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: '削除できません' }), { status: 503 }));
+  await expect(repo.deleteGame('target')).rejects.toThrow('削除できません');
+  fetch.mockRestore(); await repo.close();
 });

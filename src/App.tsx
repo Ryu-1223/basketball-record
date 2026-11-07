@@ -112,6 +112,7 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
   const [template, setTemplate] = useState<Game | undefined>();
   const [gameId, setGameId] = useState<string | null>(() => localStorage.getItem(viewKey));
   const [historyId, setHistoryId] = useState<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyGame, setHistoryGame] = useState<Game | undefined>();
   const [teamMounted, setTeamMounted] = useState(false);
   const restoringGame = useRef(Boolean(gameId));
@@ -127,7 +128,7 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
   const [confirmLogout, setConfirmLogout] = useState(false);
   const locked = useRef(false);
 
-  useEffect(() => { setHistoryGame(undefined); if (historyId) return repo.watchGame(historyId, setHistoryGame); }, [repo, historyId]);
+  useEffect(() => { setHistoryGame(undefined); setHistoryLoaded(false); if (historyId) return repo.watchGame(historyId, value => { setHistoryGame(value); setHistoryLoaded(true); }); }, [repo, historyId]);
   useEffect(() => repo.watchTeam(setTeam), [repo]);
   useEffect(() => repo.watchPlayers(setPlayers), [repo]);
   useEffect(() => repo.watchGames(limit, value => { setGames(value); setLoaded(true); }), [repo, limit]);
@@ -163,6 +164,13 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
     setGameId(id); localStorage.setItem(viewKey, id); navigate('game');
   }
   function openHistory(id: string) { setHistoryId(id); navigate('historyGame'); }
+  function afterDeletion(id: string, finished: boolean) {
+    setGames(current => current.filter(value => value.id !== id));
+    if (gameId === id) { setGameId(null); localStorage.removeItem(viewKey); }
+    if (historyId === id) { setHistoryId(null); setHistoryGame(undefined); }
+    navigate(finished ? 'history' : 'home');
+  }
+
   function prepareGame(previous?: Game) {
     if (newMounted && !window.confirm('入力途中の試合準備を取り消して、新しい準備を開きますか？')) return;
     setTemplate(previous); setNewVersion(version => version + 1); navigate('new');
@@ -207,8 +215,9 @@ function Workspace({ repo, onLogout, updateAvailable, applyUpdate }: { repo: Rep
       {newMounted && <div hidden={page !== 'new'}><NewGame key={`${template?.id ?? 'new'}:${newVersion}`} template={template} teamName={team.name ?? ""} players={players} busy={busy} back={() => navigate('home')} register={() => { setPlayerOrigin('new'); navigate('players'); }} create={g => { void run(async () => { await repo.saveGame(g); setNewMounted(false); openGame(g.id); }); }} /></div>}
       <div hidden={page !== 'help'}><Help /></div>
       {teamMounted && <div hidden={page !== 'team'}><button onClick={() => { setPlayerOrigin('team'); navigate('players'); }}>選手登録・変更</button><button className="quiet" onClick={() => setConfirmLogout(true)}>退出</button><TeamInfo onDirty={setTeamDirty} team={team} busy={busy} save={name => { void run(() => repo.saveTeamName(name)); }} /></div>}
-      <div hidden={page !== 'game'}>{(game ? <GameScreen key={game.id} game={game} players={players} games={games} prepareNext={() => prepareGame(game)} teamName={team.name ?? ""} pending={sync.pending > 0} repo={repo} now={Date.now()} busy={busy} run={run} back={() => { if (game.status === 'finished') { localStorage.removeItem(viewKey); } navigate(game.status === 'finished' ? 'history' : 'home'); }} /> : <section className="panel stack"><p>{loaded ? 'この試合はまだ読み込まれていません。試合一覧から選び直してください。' : '試合を読み込み中…'}</p><button onClick={() => navigate('home')}>試合一覧へ</button></section>)}</div>
-      {historyGame && <div hidden={page !== 'historyGame'}><GameScreen key={`history:${historyGame.id}`} backLabel="過去の記録に戻る" game={historyGame} players={players} games={games} prepareNext={() => prepareGame(historyGame)} teamName={team.name ?? ''} pending={sync.pending > 0} repo={repo} now={Date.now()} busy={busy} run={run} back={() => { setHistoryId(null); navigate('history'); }} /></div>}
+      <div hidden={page !== 'game'}>{(game ? <GameScreen key={game.id} game={game} onDeleted={() => afterDeletion(game.id, game.status === 'finished')} canDelete={sync.pending === 0 && !sync.error && (repo.mode === 'local' || (online && !sync.fromCache))} players={players} games={games} prepareNext={() => prepareGame(game)} teamName={team.name ?? ""} pending={sync.pending > 0} repo={repo} now={Date.now()} busy={busy} run={run} back={() => { if (game.status === 'finished') { localStorage.removeItem(viewKey); } navigate(game.status === 'finished' ? 'history' : 'home'); }} /> : <section className="panel stack"><p>{loaded ? 'この試合は削除されたか、まだ読み込まれていません。試合一覧を確認してください。' : '試合を読み込み中…'}</p><button onClick={() => navigate('home')}>試合一覧へ</button></section>)}</div>
+      {page === 'historyGame' && !historyGame && <section className="panel"><p>{historyLoaded ? 'この試合は削除されたか、参照できません。' : '試合を読み込み中…'}</p><button onClick={() => navigate('history')}>過去の記録に戻る</button></section>}
+      {historyGame && <div hidden={page !== 'historyGame'}><GameScreen key={`history:${historyGame.id}`} backLabel="過去の記録に戻る" game={historyGame} onDeleted={() => afterDeletion(historyGame.id, historyGame.status === 'finished')} canDelete={sync.pending === 0 && !sync.error && (repo.mode === 'local' || (online && !sync.fromCache))} players={players} games={games} prepareNext={() => prepareGame(historyGame)} teamName={team.name ?? ''} pending={sync.pending > 0} repo={repo} now={Date.now()} busy={busy} run={run} back={() => { setHistoryId(null); navigate('history'); }} /></div>}
     </main>
 
     <footer>バスケの記録<span>見る、押す、残す。</span></footer>
@@ -292,9 +301,10 @@ function NewGame({ players, busy, back, register, create, teamName, template }: 
 function readDraft(gameId: string, scope: string): Draft | null {
   try { const value = JSON.parse(sessionStorage.getItem(`${draftKey}:${scope}:${gameId}`) ?? sessionStorage.getItem(`${draftKey}:${scope}`) ?? 'null') as Draft | null; return value?.gameId === gameId ? value : null; } catch { return null; }
 }
-function GameScreen({ game, players, games, prepareNext, repo, now, busy, run, back, teamName, pending, backLabel }: { backLabel?: string; game: Game; players: Player[]; games: Game[]; prepareNext: () => void; teamName: string; pending: boolean; repo: Repository; now: number; busy: boolean; run: Runner; back: () => void }) {
+function GameScreen({ game, players, games, prepareNext, repo, now, busy, run, back, teamName, pending, backLabel, onDeleted, canDelete }: { onDeleted: () => void; canDelete: boolean; backLabel?: string; game: Game; players: Player[]; games: Game[]; prepareNext: () => void; teamName: string; pending: boolean; repo: Repository; now: number; busy: boolean; run: Runner; back: () => void }) {
   const [plays, setPlays] = useState<Play[]>([]);
   const [draft, setDraft] = useState<Draft | null>(() => readDraft(game.id, repo.scope));
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [recordSide, setRecordSide] = useState<'own' | 'opponent'>('own');
   const [editing, setEditing] = useState<Play | null>(null);
   const [confirm, setConfirm] = useState<'quarter' | 'finish' | 'undoFinish' | null>(null);
@@ -402,9 +412,17 @@ function GameScreen({ game, players, games, prepareNext, repo, now, busy, run, b
       {!visible.length ? <p className="empty">プレーを記録すると、ここに表示されます。</p> : <ol className="play-list">{displayPlays.map(play => <li key={play.id}><PlayLine play={play} game={game} /><div className="history-actions"><button className="quiet small" onClick={() => setEditing(play)}>訂正</button>{showHistory && <><button className="quiet small" disabled={busy || visible.filter(p => p.quarter === play.quarter)[0]?.id === play.id} onClick={() => { void movePlay(play, -1); }}>前へ</button><button className="quiet small" disabled={busy || visible.filter(p => p.quarter === play.quarter).at(-1)?.id === play.id} onClick={() => { void movePlay(play, 1); }}>後へ</button></>}</div></li>)}</ol>}
     </section>}
     {(game.status !== 'finished' || showHistory) && plays.some(p => p.cancelled) && <section className="panel"><button className="quiet" onClick={() => setCancelledOpen(!cancelledOpen)}>{cancelledOpen ? '取消済みを閉じる' : '取消済みを確認・復元'}</button>{cancelledOpen && <ul>{sortPlays(plays.filter(p => p.cancelled)).map(p => <li key={p.id}><PlayLine play={p} game={game} /><button disabled={busy} onClick={() => { void run(() => repo.savePlay({ ...p, cancelled: false, updatedAt: Date.now() })); }}>この記録を元に戻す</button></li>)}</ul>}</section>}
-    {game.status === 'finished' && <details className="panel"><summary>その他の操作</summary><p>保管すると通常の一覧から外れます。保管一覧から戻せます。</p><button disabled={busy} onClick={() => { void run(async () => { await repo.saveGame({ ...game, archived: !game.archived, updatedAt: Date.now() }); back(); }); }}>{game.archived ? '試合を一覧に戻す' : 'この試合を保管する'}</button><details className="panel"><summary>試合終了を取り消す</summary><p>時計を止めた状態で試合に戻します。得点の訂正は終了したまま行えます。</p><button disabled={busy} onClick={() => setConfirm('undoFinish')}>終了を取り消して試合に戻る</button></details><button onClick={() => setRosterOpen(true)}>この試合の選手を追加・訂正</button></details>}
+    {game.status === 'finished' && <details className="panel"><summary>その他の操作</summary><button className="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>この試合を削除する</button><p>保管すると通常の一覧から外れます。保管一覧から戻せます。</p><button disabled={busy} onClick={() => { void run(async () => { await repo.saveGame({ ...game, archived: !game.archived, updatedAt: Date.now() }); back(); }); }}>{game.archived ? '試合を一覧に戻す' : 'この試合を保管する'}</button><details className="panel"><summary>試合終了を取り消す</summary><p>時計を止めた状態で試合に戻します。得点の訂正は終了したまま行えます。</p><button disabled={busy} onClick={() => setConfirm('undoFinish')}>終了を取り消して試合に戻る</button></details><button onClick={() => setRosterOpen(true)}>この試合の選手を追加・訂正</button></details>}
     {game.status !== 'finished' && <button className="quiet full" onClick={() => setRosterOpen(true)}>この試合の選手を追加・訂正</button>}
     <details className="panel team-details"><summary>この試合の選手（{game.roster.length}人）</summary><button onClick={() => setSettings(true)}>スコアシート情報</button>{game.status === 'running' && <><button onClick={() => { setWakeError(''); setWakeEnabled(!wakeEnabled); }}>{wakeEnabled ? '画面の自動消灯を端末の設定に戻す' : '画面を消えにくくする'}</button>{wakeError && <p role="status">{wakeError}</p>}</>}<p>{sortPlayers(game.roster).map(p => `${p.number} ${p.name}`).join(' / ')}</p></details>
+    {game.status !== 'finished' && <details className="panel"><summary>試合の管理</summary><button className="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>この試合を削除する</button></details>}
+    {confirmDelete && <Dialog title="この試合を削除しますか？" onClose={() => { if (!busy) setConfirmDelete(false); }}>
+      <p><strong>{game.date} ／ {game.kind === 'scrimmage' ? `${game.sheet?.own.name || 'チーム１'} 対 ` : ''}{game.opponent}</strong></p>
+      <p>この試合と、得点・プレー・成績・スコアシートの記録を削除します。チーム全員の画面から消え、元には戻せません。登録選手の名簿や他の試合は残ります。</p>
+      {game.status === 'running' && <p>記録中の試合です。続きの記録もできなくなります。</p>}
+      {!canDelete && <p role="status">通信を確認し、「すべて保存済み」になってから削除してください。</p>}
+      <div className="stack"><button className="danger" disabled={busy || !canDelete} onClick={() => { void run(async () => { await repo.deleteGame(game.id); onDeleted(); }); }}>{busy ? '削除中…' : 'この試合を完全に削除'}</button><button disabled={busy} onClick={() => setConfirmDelete(false)}>削除せず戻る</button></div>
+    </Dialog>}
     {draft && !alreadySaved && <Dialog title={draft.playerId && isShot(draft.action) ? 'シュートの種類' : '選手を選ぶ'} onClose={() => setDraft(null)}>
       <div className="draft-summary"><strong>{actionLabels[draft.action]}</strong><span>{periodLabel(game, draft.quarter)}・{formatTime(draft.elapsedMs)}</span></div>
       <p className="muted small">この時刻で記録します。{game.status === 'running' && `現在 ${formatTime(elapsed(q, now))}`}</p>
@@ -474,6 +492,7 @@ function Help() {
     <details className="panel"><summary>試合中に記録する</summary><p>「試合開始」で時計が動きます。「一時停止」で時計を止め、「再開」で続きから動かせます。止めている間も記録できます。会場の競技時計とは連動しません。</p><p>「シュート決」「シュート外」「リバウンド」「パスカット」を押して選手を選びます。シュートは続けて2点、3点、フリースローを選びます。得点した選手が分からない場合は「選手不明」を使えます。「選手を選び直す」「記録せず戻る」も使えます。</p><p>相手の得点は「相手のシュート決」から背番号と種類を選びます。初めての番号は「背番号を追加」から入力します。「背番号不明」も選べます。部内ゲームでは記録するチームを切り替えられます。</p><p>「ファウル」「タイムアウト」「Player in」からも記録できます。Player inは選手が初めて出たときに記録し、先発選手はスコアシート情報で設定します。タイムアウトの残り時間は会場の時計を見て入力します。</p><p>「このQを終了」で時計を止め、次のQを開始します。部内ゲームでは「このゲームを終了」を使います。必要なら「Q終了を取り消す」で戻せます。練習試合・大会では最後に「試合全体を終了」を押します。部内ゲームは「このゲームを終了」で結果画面に進みます。</p><p>「途中成績を見る」で記録中の成績を確認できます。「この試合の選手」を開くと名簿、スコアシート情報、画面を消えにくくする設定があります。端末によっては画面消灯を防げません。</p></details>
     <details className="panel"><summary>記録を直す</summary><p>「直前の記録」の「この記録を取り消す」で直前の入力を取り消せます。記録一覧の「訂正」では選手、種類、時間などを直したり、取り消したりできます。「取消済みを確認・復元」から取り消した記録を戻せます。</p><p>「記録漏れを追加」では、入れ忘れた記録と入れる位置を選びます。試合終了後の「記録を確認・訂正する」では「前へ」「後へ」で順番も直せます。「その他の操作」から終了取消やこの試合の名簿変更もできます。「この試合の選手を追加・訂正」はその試合の名簿だけを変更します。</p></details>
     <details className="panel"><summary>試合結果・過去の試合</summary><p>試合終了後に成績と得点を確認できます。チーム、Q、シュートの種類を切り替えられます。「—」は記録がなく確認も済んでいない欄です。記録を確認した項目は確認済みにできます。</p><p>「次の試合を準備」で相手・選手・組分けを確認し、「この内容で試合を作成」で新しい試合を作れます。相手が変わる場合は新しい相手を入力してください。「この連続ゲームの合計を見る」は同じ連続ゲームの読み込み済みの試合を集計します。必要に応じて一覧の「前の試合をもっと見る」を押してください。</p><p>試合一覧では相手や日付で検索できます。「その他の操作」の「この試合を保管する」は一覧から外す操作です。「保管した試合を見る」から開き、「試合を一覧に戻す」で戻せます。「試合終了を取り消す」も使えます。</p></details>
+    <details className="panel"><summary>試合を削除する</summary><p>削除したい試合を開きます。終了した試合は「その他の操作」、開始前・記録中の試合は「試合の管理」を開いて「この試合を削除する」を押します。日付と相手を確認し、「この試合を完全に削除」で削除します。</p><p>試合内の得点、プレー、成績、スコアシートも削除され、チーム全員の画面から消えます。元には戻せません。選手登録や他の試合は残ります。必要な記録は先にPDFで保存してください。すでに端末へ保存したPDFは削除されません。</p><p>通信中で、すべて保存済みのときに削除できます。残しておきたい場合は「削除せず戻る」を押してください。「保管する」は一覧から外すだけで、あとから戻せます。</p></details>
     <details className="panel"><summary>スコアシートと印刷</summary><p>「スコアシート情報」で大会、会場、時間、選手、先発、審判や記録係などを入力して保存します。相手選手は背番号を追加できます。ファウルの種類やフリースローの付記、特殊なケースは記録画面で選びます。</p><p>試合結果のスコアシート画面で未記入・未確認の項目を確認できます。「拡大して見る」で表示を変え、「PDFを保存」でPDFを作ります。「印刷・印刷用画面」は端末の印刷画面を開きます。署名欄は印刷後に記入できます。「スコアシートの情報を入力・確認」で不足情報を補足します。</p></details>
     <details className="panel"><summary>保存と通信</summary><p>画面上部に保存状態が表示されます。通信が切れても入力でき、通信が戻ると送信します。「未送信」があるときは同じ端末で待ち、必要なら「認証と保存を再確認」を押してください。</p><p>1試合は1台で記録し、「すべて保存済み」を確認してから退出や端末の交代をしてください。未送信のままブラウザのデータを消すと、その記録は失われます。</p></details>
     </>;

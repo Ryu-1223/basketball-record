@@ -3,7 +3,7 @@ import { getAuth, connectAuthEmulator, signInWithCustomToken, signOut, type Auth
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
   collection, doc, onSnapshot, orderBy, query, limit, setDoc, terminate, clearIndexedDbPersistence,
-  type Firestore, type DocumentData, type Query, updateDoc,
+  type Firestore, type DocumentData, type Query, updateDoc, getDocFromServer,
 } from 'firebase/firestore';
 import { openDB } from 'idb';
 import type { Game, Play, Player } from './domain';
@@ -85,7 +85,20 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
         entry = await outbox.get('writes', path);
       }
       if (!entry) pending.delete(path);
-    } catch (error) { errors.set(path, readableError(error)); }
+    } catch (error) {
+      // A confirmed deletion makes queued edits obsolete, even after an offline restart.
+      const gameId = path.startsWith(`${teamPath}/games/`) ? path.split('/')[3] : null;
+      let deleted = false;
+      if (gameId && String((error as { code?: unknown }).code).includes('permission-denied')) {
+        try { deleted = (await getDocFromServer(doc(db, `${teamPath}/deletedGames/${gameId}`))).exists(); }
+        catch { /* Keep the write if deletion cannot be verified. */ }
+      }
+      if (closed) return;
+      if (deleted) {
+        await outbox.delete('writes', path);
+        pending.delete(path); errors.delete(path);
+      } else errors.set(path, readableError(error));
+    }
     finally {
       processing.delete(path); notify();
       // 同じ記録の更新が送信完了と重なった場合も、新しい版を取り残さない。
@@ -147,6 +160,17 @@ export async function createCloudRepository(uid: string, teamId: string): Promis
     watchSync: cb => { syncListeners.add(cb); cb(state()); return () => { syncListeners.delete(cb); }; },
     savePlayer: value => save(`${teamPath}/players/${value.id}`, value),
     saveGame: value => save(`${teamPath}/games/${value.id}`, value),
+    deleteGame: async gameId => {
+      if (!navigator.onLine || state().pending || state().error) throw new Error('通信を確認し、すべて保存済みになってから削除してください。');
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error('チームに参加し直してください。');
+      const response = await fetch('/api/game', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ gameId }), cache: 'no-store', signal: AbortSignal.timeout(60_000),
+      });
+      const result = await response.json().catch(() => null) as { deleted?: boolean; error?: string } | null;
+      if (!response.ok || !result?.deleted) throw new Error(result?.error ?? '削除の完了を確認できません。同じ試合の削除をもう一度お試しください。');
+    },
     savePlay: value => save(`${teamPath}/games/${value.gameId}/plays/${value.id}`, value),
     savePlays: async values => {
       // Persist the entire reorder locally before starting any network writes.
