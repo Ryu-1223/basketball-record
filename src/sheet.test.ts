@@ -103,6 +103,11 @@ describe('TO記録と帳票', () => {
     const loaded = await PDFDocument.load(bytes);
     expect(loaded.getPageCount()).toBe(pages.length);
     expect(loaded.getPages()[0].getWidth()).toBeCloseTo(595.28, 1);
-    if (process.env.RENDER_SHEET_FIXTURES === '1') { mkdirSync('tmp/pdfs', { recursive: true }); writeFileSync('tmp/pdfs/to-sheet-sample.pdf', bytes); writeFileSync('tmp/pdfs/to-sheet-sample.svg', pageSvg(pages[0])); }
+    if (process.env.RENDER_SHEET_FIXTURES === '1') {
+      mkdirSync('tmp/pdfs', { recursive: true }); writeFileSync('tmp/pdfs/to-sheet-sample.pdf', bytes); writeFileSync('tmp/pdfs/to-sheet-sample.svg', pageSvg(pages[0]));
+      const longGame = gameFixture(); longGame.sheet!.own.players[0].name = '長'.repeat(40);
+      const longPages = buildSheetPages(longGame, samplePlays());
+      writeFileSync('tmp/pdfs/to-sheet-long-name.pdf', await createSheetPdf(longPages, new Uint8Array(readFileSync('public/fonts/NotoSansJP.ttf'))));
+    }
   }, 30000);
 });

@@ -238,7 +238,7 @@ export function buildSheetPages(game: Game, plays: Play[], kind: OutputKind = 'a
         const nameChars = [...row.name];
         const nameLines: string[] = [];
         while (nameChars.length) nameLines.push(nameChars.splice(0, full ? 18 : 24).join(''));
-        const rowHeight = Math.max(9, nameLines.length * 4 + 2);
+        const rowHeight = Math.max(9, nameLines.length * 4 + 6);
         if (y + rowHeight > 278) { add(p, '選手別成績'); p = new Pen(); y = 32; startPage(); }
         const selected = plays.filter(e => !e.cancelled && sideOf(e) === side && (row.id === null || e.playerId === row.id));
         const cells = [row.name, ...(['2', '3', 'ft'] as const).map(shot => { const made = selected.filter(e => e.action === 'made' && e.shot === shot).length; const attempts = selected.filter(e => ['made', 'miss'].includes(e.action) && e.shot === shot).length; return full ? `${made} / ${attempts}` : String(made); }), String(selected.reduce((n, e) => n + points(e), 0)), ...(full ? [String(selected.filter(e => e.action === 'rebound').length), String(selected.filter(e => e.action === 'steal').length)] : [])];
