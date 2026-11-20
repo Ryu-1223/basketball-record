@@ -22,3 +22,15 @@ it('記録が未確認の空欄は0と区別し、確認後は0と表示する',
   await user.click(screen.getByRole('checkbox', { name: 'シュートの記録を確認済み' }));
   expect(screen.getByRole('row', { name: /1 山田 0 0 — 0/ })).toBeTruthy();
 });
+
+it('得点のみの部内ゲームでも途中成績の得点とファウル数を切り替えられる', async () => {
+  const user = userEvent.setup();
+  render(<Results game={{ ...game, status: 'running', kind: 'scrimmage', recordMode: 'scores' }} plays={[]} live={{ teamName: '自校' }} />);
+  const categories = within(screen.getByRole('group', { name: '成績の種類' }));
+  expect(categories.getByRole('button', { name: '得点', pressed: true })).toBeTruthy();
+  await user.click(categories.getByRole('button', { name: 'ファウル数' }));
+  expect(screen.queryByLabelText('集計するQ')).toBeNull();
+  expect(screen.getByRole('region', { name: 'ファウル数' })).toBeTruthy();
+  await user.click(categories.getByRole('button', { name: '得点' }));
+  expect(screen.getByRole('columnheader', { name: '記録された得点' })).toBeTruthy();
+});

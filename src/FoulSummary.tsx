@@ -23,7 +23,7 @@ export function FoulSummary({ game, plays, teamName }: { game: Game; plays: Play
   }));
 
   return (
-    <section className="results panel" aria-labelledby={titleId}>
+    <section aria-labelledby={titleId}>
       <h2 id={titleId}>ファウル数</h2>
       <p className="small muted">記録した分の集計です。</p>
       <div className="table-wrap">

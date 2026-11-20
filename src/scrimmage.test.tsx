@@ -50,10 +50,15 @@ it('部内ゲームで両組を選び、相手組の失敗とリバウンドを�
   await user.click(foulEditor.getByRole('button', { name: '記録を保存' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   await user.click(screen.getByRole('button', { name: '途中成績を見る' }));
+  const categories = within(screen.getByRole('group', { name: '成績の種類' }));
+  expect(screen.queryByRole('region', { name: 'ファウル数' })).toBeNull();
+  await user.click(categories.getByRole('button', { name: 'ファウル数' }));
   const fouls = within(screen.getByRole('region', { name: 'ファウル数' }));
   expect(fouls.getByRole('row', { name: 'チーム１ 0' })).toBeTruthy();
   expect(fouls.getByRole('row', { name: 'チーム２ 1' })).toBeTruthy();
   expect(fouls.getByRole('row', { name: 'チーム２ / 7 山田 1' })).toBeTruthy();
+  await user.click(categories.getByRole('button', { name: 'シュート' }));
+  expect(screen.queryByRole('region', { name: 'ファウル数' })).toBeNull();
   await user.click(screen.getByRole('button', { name: 'チーム２の成績' }));
   expect(screen.getByRole('row', { name: /7 山田 1 0 0% 0/ })).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'リバウンド', pressed: false }));
