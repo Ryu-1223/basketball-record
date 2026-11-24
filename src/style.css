@@ -5,7 +5,7 @@ button, input, select { font: inherit; }
 button { cursor: pointer; min-height: 48px; border: 1px solid #aebbb0; border-radius: 7px; background: #fff; color: #202b24; padding: 12px 16px; font-weight: 650; touch-action: manipulation; }
 button:active { background: #e6ece7; }
 button:disabled { cursor: default; opacity: .45; }
-button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #c07920; outline-offset: 3px; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, .dialog-head h2:focus-visible { outline: 3px solid #c07920; outline-offset: 3px; }
 .primary { background: var(--green); border-color: var(--green); color: #fff; }
 .primary:active { background: #153323; }
 .quiet { border-color: transparent; background: transparent; color: #405c4b; }
@@ -37,6 +37,8 @@ p { line-height: 1.75; margin: 8px 0; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .row h2 { margin: 0; }
 .game-list { display: flex; flex-direction: column; gap: 10px; }
+.game-list > div { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.game-list > div > .quiet { align-self: flex-end; min-width: 110px; }
 .game-card { display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: left; padding: 17px 18px; border-color: var(--line); }
 .opponent { font-size: 19px; font-weight: 750; overflow-wrap: anywhere; }
 .tag { display: inline-block; border: 1px solid #d1d9d1; border-radius: 4px; font-size: 11px; padding: 2px 7px; white-space: nowrap; font-weight: 600; }
@@ -119,3 +121,101 @@ dialog::backdrop { background: #15251ac4; }
 @media (min-width: 700px) { .shell { padding-inline: 26px; } .app-header { padding-top: 24px; } }
 @media (max-width: 360px) { .shell { padding-inline: 12px; } .panel { padding: 15px; } .action { font-size: 18px; } .roster-row { gap: 4px; } .roster-row button { padding-inline: 6px; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+.results { margin-block: 20px; }
+.result-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 12px; }
+.result-tabs button { padding: 8px; font-size: 13px; min-height: 42px; }
+.result-tabs button[aria-pressed="true"] { background: #244d35; color: white; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { border-bottom: 1px solid #d8dfd9; padding: 10px 5px; text-align: right; }
+th:first-child { text-align: left; overflow-wrap: anywhere; }
+.score { font-size: 18px; font-weight: bold; text-align: center; overflow-wrap: anywhere; }
+.opponent-action { margin-bottom: 16px; border-width: 2px; }
+@font-face { font-family: SheetJP; src: url('/fonts/NotoSansJP.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+.sheet-player { border: 1px solid var(--line); padding: 12px; border-radius: 4px; display: grid; gap: 8px; }
+.inline-check { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.inline-check input { width: 20px; height: 20px; min-height: 20px; flex-shrink: 0; }
+.to-actions { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin: 16px 0; }
+.to-actions button { padding: 10px 4px; font-size: 14px; }
+.sheet-pages { overflow-x: auto; }
+.sheet-paper { width: 100%; margin: 16px 0; background: white; border: 1px solid var(--line); }
+.sheet-paper svg { display: block; width: 100%; height: auto; }
+.sheet-pages.zoomed .sheet-paper { width: 794px; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.play-list li { flex-wrap: wrap; }
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  body, .shell { margin: 0 !important; padding: 0 !important; max-width: none !important; background: white !important; }
+  body * { visibility: hidden; }
+  .sheet-pages, .sheet-pages * { visibility: visible; }
+  .sheet-pages { position: absolute; top: 0; left: 0; overflow: visible; width: 210mm; }
+  .sheet-paper, .sheet-pages.zoomed .sheet-paper { border: 0; margin: 0; width: 210mm; height: 297mm; break-after: page; break-inside: avoid; }
+  .sheet-paper:last-child { break-after: auto; }
+  .sheet-paper svg { width: 210mm; height: 297mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .no-print { display: none !important; }
+}
+/* 試合中は記録操作を上部へ集める。 */
+.game-active .app-header, .game-active footer, .game-active .game-heading, .game-active .sheet-settings-trigger { display: none; }
+.game-active .sync-bar { min-height: 30px; padding: 4px 0; }
+.game-active .back { margin: 2px 0; min-height: 34px; padding: 4px; }
+.game-active .score { margin: 2px 0; font-size: 16px; }
+.game-active .clock { padding: 6px 10px; margin: 4px 0; }
+.game-active .time { font-size: 27px; line-height: 1.15; }
+.game-active .clock p { display: none; }
+.game-active .opponent-action { margin: 4px 0 0; min-height: 42px; padding: 5px; }
+.game-active .action-grid { gap: 6px; margin: 6px 0; }
+.game-active .action { min-height: 58px; padding: 6px; }
+.game-active .to-actions { gap: 5px; margin: 6px 0; }
+.game-active .last-play { padding: 8px 10px; margin: 6px 0; }
+.game-active .last-play h2 { display: none; }
+.game-active .last-play .play-line { font-size: 13px; }
+.game-active .result-tabs { margin: 4px 0; }
+.main-tabs { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: #f6f7f5; border-bottom: 1px solid var(--line); }
+.main-tabs button { border-radius: 0; border: 0; border-bottom: 3px solid transparent; padding: 10px 3px; font-size: 13px; min-height: 52px; }
+.main-tabs button[aria-current=page] { background: #e7f0e8; border-bottom-color: #234b39; font-weight: 800; }
+[hidden] { display: none !important; }
+@media print { .main-tabs { display: none; } }
+
+.main-tabs small { display: block; font-size: 10px; font-weight: 500; }
+
+/* 小さな画面でも操作の意味と選手の並びを保つ。 */
+.main-tabs button, .to-actions button { word-break: keep-all; overflow-wrap: normal; }
+.to-actions button { min-width: 0; }
+.finished-actions { margin: 8px 0; }
+.game-finished .app-header { padding-block: 4px; }
+.game-finished .sync-bar { min-height: 30px; padding-block: 4px; }
+.game-finished .back { margin: 2px 0; }
+.game-finished .game-heading { margin: 2px 0; }
+.game-finished .game-heading p, .game-finished .game-heading h1 { margin: 2px 0; }
+.game-finished .game-heading h1 { font-size: 19px; }
+.game-finished .score { margin: 2px 0; }
+.game-finished .result-tabs { margin-block: 6px; }
+.game-active .clock-running { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(96px, 1fr); align-items: center; gap: 6px; }
+.clock-running .clock-top { flex-direction: column; align-items: flex-start; }
+.clock-running .time { font-variant-numeric: tabular-nums; }
+.clock-running button { padding-inline: 6px; }
+.results { padding: 12px; margin-block: 8px; }
+.results h2 { margin-bottom: 8px; }
+.result-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.shot-filters { display: grid; grid-template-columns: 1fr 1fr 1fr 1.8fr; }
+.result-categories button, .shot-filters button { min-height: 48px; }
+.result-tabs button[aria-pressed="true"] { border: 2px solid #234b39; }
+.unknown-player { margin-top: 16px; }
+dialog:has(.player-grid) { margin-top: 16px; }
+.roster-row { flex-wrap: wrap; }
+.roster-row .player-name { min-width: 100px; }
+summary { min-height: 48px; line-height: 1.5; padding-block: 12px; }
+@media (max-width: 360px) { .shot-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.game-active .action { min-height: 60px; }
+.game-active .action-grid { gap: 8px; }
+.game-active .back, .game-active .opponent-action, .result-tabs button, .dialog-head button { min-height: 48px; }
+.main-tabs button, .to-actions button { overflow-wrap: normal; }
+.record-target { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.player-choice span { font-size: 16px; }
+.small, .main-tabs button { font-size: 14px; }
+.game-active .time { font-size: 28px; }
+/* 計画で決めた余白と操作間隔。 */
+.shell { padding-inline: 16px; }
+@media (max-width: 360px) { .shell { padding-inline: 12px; } }
+dialog:has(.player-grid) { padding: 12px; }
+.game-active .to-actions, .result-tabs { gap: 8px; }

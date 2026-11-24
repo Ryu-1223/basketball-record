@@ -3,12 +3,15 @@ import { afterAll, beforeAll, describe, it } from 'vitest';
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { collection, doc, getDoc, getDocs, getDocsFromCache, setDoc, updateDoc, deleteDoc, disableNetwork, enableNetwork } from 'firebase/firestore';
 
+import { newSheet } from '../src/to';
+
 let environment: RulesTestEnvironment;
 const game = { id: 'game', opponent: '相手校', date: '2026-11-01', roster: [{ id: 'p7', name: '田中', number: '7' }], quarters: [{ number: 1, startedAt: 1000, endedAt: null }], status: 'running', createdAt: 1, updatedAt: 1 };
 const play = { id: 'play', gameId: 'game', quarter: 1, elapsedMs: 5000, playerId: 'p7', action: 'made', shot: '3', createdAt: 1, updatedAt: 1, cancelled: false };
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-basketball-record', firestore: { rules: readFileSync('firestore.rules', 'utf8'), host: '127.0.0.1', port: 8080 } });
   await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'teams/basketball'), { name: 'テスト', passphrase: '合言葉' });
     await setDoc(doc(context.firestore(), 'teams/basketball/members/team-user'), { enabled: true });
     await setDoc(doc(context.firestore(), 'teams/basketball/games/game'), game);
   });
@@ -26,6 +29,42 @@ describe('部活のアクセス制御', () => {
     await assertSucceeds(getDoc(doc(db, 'teams/basketball/games/game')));
     await assertSucceeds(setDoc(doc(db, 'teams/basketball/games/game/plays/play'), play));
     await assertSucceeds(updateDoc(doc(db, 'teams/basketball/games/game/plays/play'), { cancelled: true }));
+  });
+  it('相手得点の番号とチーム名だけを正しく保存できる', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const ref = doc(db, 'teams/basketball/games/game/plays/opponent');
+    await assertSucceeds(setDoc(ref, { ...play, id: 'opponent', side: 'opponent', playerId: '00' }));
+    await assertFails(setDoc(ref, { ...play, id: 'opponent', side: 'opponent', playerId: '007' }));
+    await assertFails(setDoc(ref, { ...play, id: 'opponent', side: 'opponent', playerId: '7', action: 'miss' }));
+    await assertSucceeds(updateDoc(doc(db, 'teams/basketball'), { name: '新しい名前' }));
+    await assertFails(updateDoc(doc(db, 'teams/basketball'), { passphrase: 'changed' }));
+  });
+  it('TO記録・帳票情報を保存し、不正な残り時間やコーチのチームFを拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const path = 'teams/basketball/games/to-game';
+    await assertSucceeds(setDoc(doc(db, path), { ...game, id: 'to-game', sheet: newSheet('さくら中') }));
+    const ref = doc(db, `${path}/plays/to-play`);
+    const base = { ...play, gameId: 'to-game', id: 'to-play', shot: null };
+    await assertSucceeds(setDoc(ref, { ...base, action: 'foul', details: { code: 'P', penalty: '2', countsTeam: true } }));
+    await assertSucceeds(setDoc(ref, { ...base, action: 'entry', side: 'opponent', playerId: '00', details: {} }));
+    await assertSucceeds(setDoc(ref, { ...base, action: 'timeout', playerId: '@team', details: { remainingSec: 224 } }));
+    await assertFails(setDoc(ref, { ...base, action: 'timeout', playerId: '@team', details: { remainingSec: 481 } }));
+    await assertFails(setDoc(ref, { ...base, action: 'foul', playerId: '@coach', details: { code: 'C', penalty: '1', countsTeam: true } }));
+    await assertFails(setDoc(ref, { ...base, action: 'foul', details: { code: 'INVALID', penalty: '', countsTeam: false } }));
+    await assertSucceeds(updateDoc(doc(db, path), { recordChecked: { own: { shots: true } } }));
+    await assertSucceeds(updateDoc(doc(db, path), { status: 'interval' }));
+    await assertSucceeds(setDoc(ref, { ...base, quarter: 2, action: 'foul', details: { code: 'P', penalty: '', countsTeam: true } }));
+    await assertFails(setDoc(ref, { ...base, quarter: 2, action: 'entry', details: {} }));
+  });
+  it('部内ゲームで相手組の失敗・リバウンドと背番号不明得点を保存できる', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const path = 'teams/basketball/games/scrimmage';
+    await assertSucceeds(setDoc(doc(db, path), { ...game, id: 'scrimmage', kind: 'scrimmage', sessionId: 'session', opponentRoster: [{ id: '8', number: '8', name: '鈴木', memberId: 'p8' }] }));
+    const ref = doc(db, `${path}/plays/shot`);
+    await assertSucceeds(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '8', action: 'miss' }));
+    await assertSucceeds(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '8', action: 'rebound', shot: null }));
+    await assertSucceeds(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '@unknown', action: 'made' }));
+    await assertFails(setDoc(ref, { ...play, gameId: 'scrimmage', id: 'shot', side: 'opponent', playerId: '@unknown', action: 'miss' }));
   });
   it('自分でアクセス権を取得できず、他の部活も読めない', async () => {
     const db = environment.authenticatedContext('outsider').firestore();
@@ -72,4 +111,37 @@ describe('部活のアクセス制御', () => {
     await assertFails(getDoc(doc(db, '_teamPassphrases/known-hash')));
     await assertFails(getDocs(collection(db, '_teamAccessAttempts')));
   });
+});
+
+it('削除済み試合は古い端末から再作成・訂正できず、削除印も偽造できない', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'teams/basketball/deletedGames/deleted'), { deletedAt: 1 });
+    await setDoc(doc(context.firestore(), 'teams/basketball/games/deleted'), { ...game, id: 'deleted' });
+  });
+  const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+  await assertFails(setDoc(doc(db, 'teams/basketball/games/deleted'), { ...game, id: 'deleted' }));
+  await assertFails(setDoc(doc(db, 'teams/basketball/games/deleted/plays/play'), { ...play, gameId: 'deleted' }));
+  await assertFails(setDoc(doc(db, 'teams/basketball/deletedGames/forged'), { deletedAt: 1 }));
+  await assertFails(deleteDoc(doc(db, 'teams/basketball/deletedGames/deleted')));
+  await assertSucceeds(getDoc(doc(db, 'teams/basketball/deletedGames/deleted')));
+});
+
+it('ゴミ箱の記録を編集・復元・期限偽造できず、復元後も古い世代の書き込みを拒否する', async () => {
+  const path = 'teams/basketball/games/trash-rule';
+  const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), path), { ...game, id: 'trash-rule', generation: 1, trashedAt: 100, expiresAt: 200 });
+  });
+  await assertSucceeds(getDoc(doc(db, path)));
+  await assertFails(updateDoc(doc(db, path), { opponent: '変更' }));
+  await assertFails(setDoc(doc(db, path), { ...game, id: 'trash-rule' }));
+  await assertFails(setDoc(doc(db, `${path}/plays/play`), { ...play, gameId: 'trash-rule', generation: 1 }));
+  await assertFails(setDoc(doc(db, '_gameTrash/forged'), { expiresAt: 1 }));
+  await environment.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), path), { ...game, id: 'trash-rule', generation: 1 }));
+  await assertFails(setDoc(doc(db, path), { ...game, id: 'trash-rule' }));
+  await assertFails(setDoc(doc(db, `${path}/plays/play`), { ...play, gameId: 'trash-rule' }));
+  await assertSucceeds(setDoc(doc(db, `${path}/plays/play`), { ...play, gameId: 'trash-rule', generation: 1 }));
+  await assertSucceeds(updateDoc(doc(db, path), { opponent: '復元後の変更' }));
+  await assertFails(updateDoc(doc(db, path), { generation: 2 }));
+  await assertFails(updateDoc(doc(db, path), { trashedAt: 100, expiresAt: 200 }));
 });

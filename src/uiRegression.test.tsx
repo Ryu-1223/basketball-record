@@ -1,0 +1,60 @@
+import 'fake-indexeddb/auto';
+import { afterEach, expect, it, vi } from 'vitest';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { deleteDB } from 'idb';
+import type { SyncState } from './repository';
+import type { Game } from './domain';
+const closers = vi.hoisted(() => [] as Array<() => Promise<void>>);
+const sync = vi.hoisted(() => ({ emit: undefined as undefined | ((state: SyncState) => void) }));
+vi.mock('./firebaseRepository', () => ({ hasCloudConfig: false }));
+vi.mock('virtual:pwa-register', () => ({ registerSW: () => () => Promise.resolve() }));
+vi.mock('./localRepository', async importOriginal => {
+  const actual = await importOriginal<typeof import('./localRepository')>();
+  return { createLocalRepository: async () => { const repo = await actual.createLocalRepository(); closers.push(repo.close); return ({ ...repo, mode: 'cloud', watchSync: (cb: (state: SyncState) => void) => { sync.emit = cb; cb({ pending: 0, error: null, fromCache: false }); return () => { sync.emit = undefined; }; } }); } };
+});
+import App from './App';
+import { createLocalRepository } from './localRepository';
+HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+vi.stubGlobal('scrollTo', vi.fn());
+afterEach(async () => { cleanup(); await Promise.all(closers.splice(0).map(close => close())); localStorage.clear(); sessionStorage.clear(); });
+
+it.each(['scores', 'own', 'both'] as const)('部内ゲームの記録範囲 %s で記録先と入力可否が一致する', async recordMode => {
+  await deleteDB('basketball-record-local');
+  const repo = await createLocalRepository();
+  const game: Game = { id: 'scope-test', kind: 'scrimmage', recordMode, opponent: 'チーム２', date: '2026-11-07', status: 'running', roster: [{ id: 'p1', number: '0', name: '同じ名前' }], opponentRoster: [{ id: '00', number: '00', name: '同じ名前', memberId: 'p2' }], quarters: [{ number: 1, startedAt: Date.now(), endedAt: null }], createdAt: 1, updatedAt: 1 };
+  await repo.saveGame(game); await repo.close();
+  localStorage.setItem('basketball-current-game:local', game.id);
+  const user = userEvent.setup(); render(<App />);
+  await user.click(screen.getByRole('button', { name: 'チームを作成' }));
+  await user.click(screen.getByRole('button', { name: 'この端末で試す' }));
+  await user.click(await screen.findByRole('button', { name: 'チーム２を記録' }));
+  expect((screen.getByRole('button', { name: 'シュート外' }) as HTMLButtonElement).disabled).toBe(recordMode !== 'both');
+  await user.click(screen.getByRole('button', { name: 'シュート決' }));
+  expect(within(screen.getByRole('dialog')).getByText('チーム２')).toBeTruthy();
+  expect(within(screen.getByRole('dialog')).getByRole('button', { name: /00\s*同じ名前/ })).toBeTruthy();
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '記録せず戻る' }));
+  act(() => sync.emit?.({ pending: 2, error: null, fromCache: false }));
+  expect(screen.getAllByRole('status').map(e => e.textContent).join(' ')).toContain('未送信 2件');
+  act(() => sync.emit?.({ pending: 2, error: '保存の接続を確認してください', fromCache: true }));
+  await waitFor(() => expect(screen.getAllByRole('status').map(e => e.textContent).join(' ')).toContain('保存を確認してください'));
+  expect(screen.queryByText('すべて保存済み')).toBeNull();
+});
+
+it('長い経過時間と3桁得点を同時に表示し、記録操作を利用できる', async () => {
+  await deleteDB('basketball-record-local');
+  const repo = await createLocalRepository();
+  const game: Game = { id: 'large-score', opponent: '試用相手', date: '2026-11-07', status: 'running', roster: [{ id: 'p1', number: '99', name: '試用選手' }], quarters: [{ number: 1, startedAt: 1000, endedAt: null, pausedAt: 6001000 }], opponentTracking: true, createdAt: 1, updatedAt: 1 };
+  await repo.saveGame(game);
+  for (let i = 0; i < 50; i++) await repo.savePlay({ id: `score-${i}`, gameId: game.id, quarter: 1, elapsedMs: i * 1000, playerId: 'p1', action: 'made', shot: '2', cancelled: false, createdAt: i + 1, updatedAt: i + 1 });
+  await repo.close();
+  localStorage.setItem('basketball-current-game:local', game.id);
+  const user = userEvent.setup(); render(<App />);
+  await user.click(screen.getByRole('button', { name: 'チームを作成' }));
+  await user.click(screen.getByRole('button', { name: 'この端末で試す' }));
+  await screen.findByText(/自チーム 100/);
+  expect(screen.getByRole('timer').textContent).toBe('100:00');
+  expect((screen.getByRole('button', { name: 'シュート決' }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.getByRole('button', { name: '再開' })).toBeTruthy();
+});

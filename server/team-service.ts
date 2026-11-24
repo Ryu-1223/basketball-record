@@ -25,12 +25,14 @@ export class TeamService {
     });
     if (blocked) throw new TeamError(429, 'TOO_MANY_ATTEMPTS', '試行回数が多いため、しばらく待ってからお試しください。');
   }
-  async access(action: TeamAction, input: unknown) {
+  async access(action: TeamAction, input: unknown, teamName?: unknown) {
     let passphrase: string;
     try { passphrase = normalizePassphrase(input); }
     catch (error) { throw new TeamError(400, 'INVALID_PASSPHRASE', (error as Error).message); }
     const ref = this.db.doc(`_teamPassphrases/${this.digest('passphrase', passphrase)}`);
     if (action === 'create') {
+      const name = typeof teamName === 'string' ? teamName.trim() : 'チーム名未設定';
+      if (!name || [...name].length > 80) throw new TeamError(400, 'INVALID_TEAM_NAME', 'チーム名を1〜80文字で入力してください。');
       const teamId = randomUUID();
       // 署名に失敗した場合は、合言葉を使用済みにしない。
       const token = await this.sign(`team:${teamId}`, { teamId });
@@ -39,7 +41,7 @@ export class TeamService {
         if (existing.exists) throw new TeamError(409, 'PASSPHRASE_TAKEN', 'この合言葉はすでに使われています。別の合言葉にしてください。');
         const createdAt = Date.now();
         tx.create(ref, { teamId, createdAt });
-        tx.create(this.db.doc(`teams/${teamId}`), { id: teamId, createdAt });
+        tx.create(this.db.doc(`teams/${teamId}`), { id: teamId, createdAt, name, passphrase });
         tx.create(this.db.doc(`teams/${teamId}/members/team:${teamId}`), { enabled: true });
       });
       return { token };
@@ -49,6 +51,8 @@ export class TeamService {
     if (!teamId) throw new TeamError(404, 'TEAM_NOT_FOUND', 'この合言葉のチームは見つかりません。合言葉を確認してください。');
     const member = await this.db.doc(`teams/${teamId}/members/team:${teamId}`).get();
     if (member.data()?.enabled !== true) throw new TeamError(403, 'TEAM_DISABLED', 'このチームには現在参加できません。');
-    return { token: await this.sign(`team:${teamId}`, { teamId }) };
+    const token = await this.sign(`team:${teamId}`, { teamId });
+    await this.db.doc(`teams/${teamId}`).update({ passphrase });
+    return { token };
   }
 }

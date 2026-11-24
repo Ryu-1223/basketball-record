@@ -11,3 +11,6 @@ coverage/
 playwright-report/
 test-results/
 .tools/
+.codex-remote-attachments/
+tmp/
+output/
