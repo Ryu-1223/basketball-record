@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Dialog } from './Dialog';
-import { elapsed, normalizeRecordOptions, playLabel, periodLabel, recordOptionLabels, type Game, type Play, type ReboundKind, type RecordOptions } from './domain';
+import { elapsed, normalizeRecordOptions, playLabel, periodLabel, recordOptionLabels, sortPlayers, type Game, type Play, type ReboundKind, type RecordOptions } from './domain';
 import { checkedLabels, foulLabels, insertPlay, isToAction, periodSeconds, sheetFor, sideOf, sortPlays, validateSheet, validateToPlay, validNumber, type FoulCode, type SheetInfo, type Side, type ToAction } from './to';
 
 export function RecordOptionsFields({ value, change, scrimmageScores = false, plays }: {
@@ -9,18 +9,20 @@ export function RecordOptionsFields({ value, change, scrimmageScores = false, pl
   scrimmageScores?: boolean;
   plays?: Play[];
 }) {
-  const keys: (keyof RecordOptions)[] = ['assist', 'turnover', 'block', 'reboundSplit'];
+  const keys: (keyof RecordOptions)[] = ['assist', 'turnover', 'block', 'reboundSplit', 'substitutions'];
   const hiddenWithData = plays ? [
     !value.assist && plays.some(p => !p.cancelled && p.action === 'assist') && 'アシスト',
     !value.turnover && plays.some(p => !p.cancelled && p.action === 'turnover') && 'ターンオーバー',
     !value.block && plays.some(p => !p.cancelled && p.action === 'block') && 'ブロック',
     !value.reboundSplit && plays.some(p => !p.cancelled && p.action === 'rebound' && p.reboundKind) && 'リバウンドの攻守区別',
+    !value.substitutions && plays.some(p => !p.cancelled && p.action === 'sub') && '交代',
   ].filter(Boolean) as string[] : [];
   return <div className="stack">
     {keys.map(key => <label className="inline-check" key={key}>
       <input type="checkbox" checked={!!value[key]} onChange={e => change({ ...value, [key]: e.target.checked })} />
       {recordOptionLabels[key]}
     </label>)}
+    {value.substitutions && <p className="small muted">交代の記録にはスコアシート情報でスタメン（先発5人）の指定が必要です。</p>}
     {scrimmageScores && <p className="small muted">「両組の得点のみ」を選んでいるため、追加の記録オプションは使用されません。</p>}
     {hiddenWithData.length > 0 && <p className="small muted" role="status">オフにした項目（{hiddenWithData.join('・')}）の記録済みデータは消えません。オフの間は結果タブに表示されず、再びオンにすると集計に戻ります。</p>}
   </div>;
@@ -41,6 +43,7 @@ export function SheetSettings({ game, plays, teamName, busy, save, close }: { ga
     turnover: !!game.recordOptions?.turnover,
     block: !!game.recordOptions?.block,
     reboundSplit: !!game.recordOptions?.reboundSplit,
+    substitutions: !!game.recordOptions?.substitutions,
   }));
   const [side, setSide] = useState<Side>('own');
   const [number, setNumber] = useState('');
@@ -104,16 +107,38 @@ export function RetroPlay({ game, plays, busy, save, close }: { game: Game; play
   const [action, setAction] = useState<Play['action']>('made');
   const [quarter, setQuarter] = useState(1);
   const [playerId, setPlayerId] = useState(game.roster[0]?.id ?? '');
+  const [outPlayerId, setOutPlayerId] = useState('');
   const [shot, setShot] = useState<'2' | '3' | 'ft'>('2');
   const [reboundKind, setReboundKind] = useState<'' | ReboundKind>('');
   const [before, setBefore] = useState('');
   const [error, setError] = useState('');
   const id = useState(() => crypto.randomUUID())[0];
   if (isToAction(action)) return <ToEditor game={game} plays={plays} action={action} busy={busy} close={close} save={p => { sessionStorage.removeItem(`basketball-to-draft:${game.id}:${p.action}`); save(insertPlay(plays, p)); }} />;
-  return <Dialog title="記録漏れを追加" onClose={close}><form className="stack" onSubmit={e => { e.preventDefault(); if (!(side === 'own' ? game.roster.some(p => p.id === playerId) : validNumber(playerId))) { setError('選手・背番号を確認してください。'); return; } const list = sortPlays(plays.filter(p => !p.cancelled && p.quarter === quarter)); const index = before ? list.findIndex(p => p.id === before) : list.length; const prior = list[index - 1]; const now = Date.now(); save(insertPlay(plays, { id, gameId: game.id, quarter, elapsedMs: prior?.elapsedMs ?? 0, playerId, action, shot: action === 'made' || action === 'miss' ? shot : null, ...(action === 'rebound' && reboundKind ? { reboundKind } : {}), createdAt: now, updatedAt: now, cancelled: false, ...(side === 'opponent' ? { side: 'opponent' as const } : {}) }, before)); }}>
-    <label>プレー<select value={action} onChange={e => { const next = e.target.value as Play['action']; setAction(next); if (next !== 'rebound') setReboundKind(''); }}><option value="made">シュート決</option>{(side === 'own' || game.kind === 'scrimmage') && <><option value="miss">シュート外</option><option value="rebound">リバウンド</option><option value="steal">パスカット</option><option value="assist">アシスト</option><option value="turnover">ターンオーバー</option><option value="block">ブロック</option></>}<option value="foul">ファウル</option><option value="timeout">タイムアウト</option><option value="entry">初出場</option></select></label>
-    <label>チーム<select value={side} onChange={e => { setSide(e.target.value as Side); setPlayerId(''); setAction('made'); setReboundKind(''); }}><option value="own">{game.kind === "scrimmage" ? sheetFor(game, plays).own.name : "自チーム"}</option><option value="opponent">{game.kind === "scrimmage" ? sheetFor(game, plays).opponent.name : "相手"}</option></select></label>
-    {side === 'own' ? <label>選手<select value={playerId} onChange={e => setPlayerId(e.target.value)}><option value="">選んでください</option>{game.roster.map(p => <option key={p.id} value={p.id}>{p.number} {p.name}</option>)}</select></label> : <label>相手の背番号<input inputMode="numeric" value={playerId} maxLength={2} onChange={e => setPlayerId(e.target.value)} /></label>}
+  return <Dialog title="記録漏れを追加" onClose={close}><form className="stack" onSubmit={e => {
+    e.preventDefault();
+    if (action === 'sub') {
+      if (!game.roster.some(p => p.id === playerId) || !game.roster.some(p => p.id === outPlayerId)) { setError('入る選手と出る選手を選んでください。'); return; }
+      if (playerId === outPlayerId) { setError('入る選手と出る選手は別の選手を選んでください。'); return; }
+    } else if (!(side === 'own' ? game.roster.some(p => p.id === playerId) : validNumber(playerId))) { setError('選手・背番号を確認してください。'); return; }
+    const list = sortPlays(plays.filter(p => !p.cancelled && p.quarter === quarter));
+    const index = before ? list.findIndex(p => p.id === before) : list.length;
+    const prior = list[index - 1];
+    const now = Date.now();
+    save(insertPlay(plays, {
+      id, gameId: game.id, quarter, elapsedMs: prior?.elapsedMs ?? 0, playerId, action,
+      shot: action === 'made' || action === 'miss' ? shot : null,
+      ...(action === 'rebound' && reboundKind ? { reboundKind } : {}),
+      ...(action === 'sub' ? { outPlayerId } : {}),
+      createdAt: now, updatedAt: now, cancelled: false,
+      ...(side === 'opponent' && action !== 'sub' ? { side: 'opponent' as const } : {}),
+    }, before));
+  }}>
+    <label>プレー<select value={action} onChange={e => { const next = e.target.value as Play['action']; setAction(next); setError(''); if (next !== 'rebound') setReboundKind(''); if (next !== 'sub') setOutPlayerId(''); }}><option value="made">シュート決</option>{(side === 'own' || game.kind === 'scrimmage') && <><option value="miss">シュート外</option><option value="rebound">リバウンド</option><option value="steal">パスカット</option><option value="assist">アシスト</option><option value="turnover">ターンオーバー</option><option value="block">ブロック</option></>}{side === 'own' && game.recordOptions?.substitutions && <option value="sub">交代</option>}<option value="foul">ファウル</option><option value="timeout">タイムアウト</option>{!game.recordOptions?.substitutions && <option value="entry">初出場</option>}</select></label>
+    <label>チーム<select value={side} onChange={e => { setSide(e.target.value as Side); setPlayerId(''); setOutPlayerId(''); setAction('made'); setReboundKind(''); setError(''); }}><option value="own">{game.kind === "scrimmage" ? sheetFor(game, plays).own.name : "自チーム"}</option><option value="opponent">{game.kind === "scrimmage" ? sheetFor(game, plays).opponent.name : "相手"}</option></select></label>
+    {side === 'own' ? (action === 'sub' ? <>
+      <label>入る選手<select value={playerId} onChange={e => setPlayerId(e.target.value)}><option value="">選んでください</option>{sortPlayers(game.roster).map(p => <option key={p.id} value={p.id}>{p.number} {p.name}</option>)}</select></label>
+      <label>出る選手<select value={outPlayerId} onChange={e => setOutPlayerId(e.target.value)}><option value="">選んでください</option>{sortPlayers(game.roster).map(p => <option key={p.id} value={p.id}>{p.number} {p.name}</option>)}</select></label>
+    </> : <label>選手<select value={playerId} onChange={e => setPlayerId(e.target.value)}><option value="">選んでください</option>{game.roster.map(p => <option key={p.id} value={p.id}>{p.number} {p.name}</option>)}</select></label>) : <label>相手の背番号<input inputMode="numeric" value={playerId} maxLength={2} onChange={e => setPlayerId(e.target.value)} /></label>}
     {(action === 'made' || action === 'miss') && <label>シュート<select value={shot} onChange={e => setShot(e.target.value as typeof shot)}><option value="2">2点</option><option value="3">3点</option><option value="ft">フリースロー</option></select></label>}
     {action === 'rebound' && <label>リバウンドの種類<select value={reboundKind} onChange={e => setReboundKind(e.target.value as '' | ReboundKind)}><option value="">区別なし</option><option value="off">攻撃リバウンド</option><option value="def">守備リバウンド</option></select></label>}
     <label>Q<select value={quarter} onChange={e => { setQuarter(Number(e.target.value)); setBefore(''); }}>{game.quarters.map(q => <option key={q.number} value={q.number}>{periodLabel(game, q.number)}</option>)}</select></label><label>挿入する位置<select value={before} onChange={e => setBefore(e.target.value)}><option value="">このQの最後</option>{sortPlays(plays.filter(p => !p.cancelled && p.quarter === quarter)).map((p, i) => <option key={p.id} value={p.id}>{i + 1}件目の前（{sideOf(p) === 'own' ? '自' : '相手'} {p.side === 'opponent' ? p.playerId : game.roster.find(x => x.id === p.playerId)?.number ?? ''} / {playLabel(p)}）</option>)}</select></label>
