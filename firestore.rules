@@ -31,11 +31,12 @@ service cloud.firestore {
         d.number.matches('([0-9]|[1-9][0-9]|00)') && d.active is bool;
     }
     function validRecordOptions(o) {
-      return o is map && o.keys().hasOnly(['assist', 'turnover', 'block', 'reboundSplit']) &&
+      return o is map && o.keys().hasOnly(['assist', 'turnover', 'block', 'reboundSplit', 'substitutions']) &&
         (!('assist' in o) || o.assist is bool) &&
         (!('turnover' in o) || o.turnover is bool) &&
         (!('block' in o) || o.block is bool) &&
-        (!('reboundSplit' in o) || o.reboundSplit is bool);
+        (!('reboundSplit' in o) || o.reboundSplit is bool) &&
+        (!('substitutions' in o) || o.substitutions is bool);
     }
     function validGame(id) {
       let d = request.resource.data;
@@ -64,9 +65,10 @@ service cloud.firestore {
     function validPlay(team, game, id) {
       let d = request.resource.data;
       let g = get(/databases/$(database)/documents/teams/$(team)/games/$(game)).data;
-      return d.keys().hasOnly(['id', 'gameId', 'quarter', 'elapsedMs', 'playerId', 'action', 'shot', 'createdAt', 'updatedAt', 'cancelled', 'side', 'details', 'reboundKind', 'order', 'generation']) &&
+      return d.keys().hasOnly(['id', 'gameId', 'quarter', 'elapsedMs', 'playerId', 'action', 'shot', 'createdAt', 'updatedAt', 'cancelled', 'side', 'details', 'reboundKind', 'outPlayerId', 'order', 'generation']) &&
         (!('side' in d) || (d.side == 'opponent' && d.action in ['made','miss','rebound','steal','assist','turnover','block','foul','timeout','entry'] && (d.action in ['made','foul','timeout','entry'] || ('kind' in g && g.kind == 'scrimmage')) && (d.playerId.matches('([0-9]|[1-9][0-9]|00)') || (d.action == 'made' && d.playerId == '@unknown') || (d.action == 'timeout' && d.playerId == '@team') || (d.action == 'foul' && d.playerId in ['@coach','@assistant'])))) &&
         (!('reboundKind' in d) || (d.action == 'rebound' && d.reboundKind in ['off', 'def'])) &&
+        (!('outPlayerId' in d) || (!('side' in d) && d.action == 'sub')) &&
         (!('order' in d) || (d.order is number && d.order > -1000000000000000 && d.order < 1000000000000000)) &&
         d.get('generation', 0) == g.get('generation', 0) && d.id == id && d.gameId == game && text(d.playerId, 128) &&
         d.quarter is int && d.quarter >= 1 && d.quarter <= g.quarters.size() + (d.action == 'foul' && g.status in ['ready','interval'] ? 1 : 0) &&
@@ -74,6 +76,7 @@ service cloud.firestore {
         ((d.action in ['made', 'miss'] && d.shot in ['2', '3', 'ft']) ||
          (d.action in ['rebound', 'steal'] && d.shot == null) ||
          (d.action in ['assist', 'turnover', 'block'] && d.shot == null) ||
+         (d.action == 'sub' && d.shot == null && 'outPlayerId' in d && d.outPlayerId is string && d.outPlayerId.size() > 0 && d.outPlayerId.size() <= 128 && d.outPlayerId != d.playerId) ||
          (d.action in ['foul','timeout','entry'] && d.shot == null && validDetails(d, g))) &&
         d.cancelled is bool && d.createdAt is number && d.updatedAt is number;
     }

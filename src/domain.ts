@@ -7,12 +7,14 @@ export type RecordOptions = {
   turnover?: boolean;
   block?: boolean;
   reboundSplit?: boolean;
+  substitutions?: boolean;
 };
 export const recordOptionLabels: Record<keyof RecordOptions, string> = {
   assist: 'アシストを記録',
   turnover: 'ターンオーバーを記録',
   block: 'ブロックを記録',
   reboundSplit: 'リバウンドを攻撃・守備に分けて記録',
+  substitutions: '交代と出場時間を記録',
 };
 export function normalizeRecordOptions(options?: RecordOptions): RecordOptions | undefined {
   if (!options) return undefined;
@@ -21,6 +23,7 @@ export function normalizeRecordOptions(options?: RecordOptions): RecordOptions |
   if (options.turnover) next.turnover = true;
   if (options.block) next.block = true;
   if (options.reboundSplit) next.reboundSplit = true;
+  if (options.substitutions) next.substitutions = true;
   return Object.keys(next).length ? next : undefined;
 }
 export type RecordCheckedSide = {
@@ -41,6 +44,7 @@ export type ExtraAction = typeof extraActions[number];
 export const actionLabels = {
   miss: 'シュート外', made: 'シュート決', rebound: 'リバウンド', steal: 'パスカット',
   assist: 'アシスト', turnover: 'ターンオーバー', block: 'ブロック',
+  sub: '交代',
 } as const;
 export type Action = keyof typeof actionLabels;
 export type Shot = '2' | '3' | 'ft';
@@ -50,12 +54,13 @@ export type Play = {
   id: string; gameId: string; quarter: number; elapsedMs: number;
   playerId: string; action: Action | ToAction; shot: Shot | null;
   reboundKind?: ReboundKind;
+  outPlayerId?: string;
   createdAt: number; updatedAt: number; cancelled: boolean; side?: 'opponent';
   details?: ToDetails;
   generation?: number;
   order?: number;
 };
-export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string; side?: 'opponent'; reboundKind?: ReboundKind };
+export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string; side?: 'opponent'; reboundKind?: ReboundKind; outPlayerId?: string };
 
 export function formatTime(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -124,8 +129,79 @@ export function completePlay(game: Game, draft: Draft, playerId: string, shot: S
   if (game.status !== 'running' || draft.quarter !== game.quarters.at(-1)?.number) throw new Error('Qの状態が変わりました。もう一度記録してください。');
   if (isShot(draft.action) && !shot) throw new Error('シュートの種類を選んでください。');
   const kind = draft.action === 'rebound' ? (reboundKind ?? draft.reboundKind) : undefined;
-  const { reboundKind: _reboundKind, ...base } = draft;
-  return { ...base, playerId, shot: isShot(draft.action) ? shot : null, ...(kind ? { reboundKind: kind } : {}), cancelled: false, updatedAt: now };
+  const outPlayerId = draft.action === 'sub' && draft.outPlayerId && draft.outPlayerId !== playerId ? draft.outPlayerId : undefined;
+  const { reboundKind: _reboundKind, outPlayerId: _outPlayerId, ...base } = draft;
+  return { ...base, playerId, shot: isShot(draft.action) ? shot : null, ...(kind ? { reboundKind: kind } : {}), ...(outPlayerId ? { outPlayerId } : {}), cancelled: false, updatedAt: now };
+}
+function walkCourt(game: Game, plays: Play[], now: number): { court: Set<string>; times: Map<string, { totalMs: number; byQuarter: Map<number, number> }> } | null {
+  if (!game.sheet) return null;
+  const starterIds = new Set(game.sheet.own.players.filter(p => p.starter).map(p => p.id));
+  if (starterIds.size !== 5) return null;
+
+  const times = new Map<string, { totalMs: number; byQuarter: Map<number, number> }>();
+  const ensure = (id: string) => {
+    let entry = times.get(id);
+    if (!entry) {
+      entry = { totalMs: 0, byQuarter: new Map<number, number>() };
+      times.set(id, entry);
+    }
+    return entry;
+  };
+  for (const p of game.roster) ensure(p.id);
+  for (const id of starterIds) ensure(id);
+
+  const startedQuarters = game.quarters
+    .filter(q => q && typeof q.startedAt === 'number' && !Number.isNaN(q.startedAt))
+    .sort((a, b) => a.number - b.number);
+
+  const court = new Set<string>(starterIds);
+  const addDuration = (id: string, quarter: number, ms: number) => {
+    const entry = ensure(id);
+    entry.totalMs += ms;
+    entry.byQuarter.set(quarter, (entry.byQuarter.get(quarter) ?? 0) + ms);
+  };
+
+  for (const q of startedQuarters) {
+    for (const entry of times.values()) {
+      if (!entry.byQuarter.has(q.number)) entry.byQuarter.set(q.number, 0);
+    }
+    const qEnd = elapsed(q, now);
+    const enteredAt = new Map<string, number>();
+    for (const id of court) enteredAt.set(id, 0);
+
+    const subs = plays
+      .filter(p => !p.cancelled && !p.side && p.action === 'sub' && p.quarter === q.number)
+      .sort((a, b) => a.elapsedMs - b.elapsedMs || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+
+    for (const sub of subs) {
+      const t = Math.max(0, Math.min(sub.elapsedMs, qEnd));
+      const outId = sub.outPlayerId;
+      const inId = sub.playerId;
+      if (outId && court.has(outId)) {
+        const start = enteredAt.get(outId) ?? 0;
+        addDuration(outId, q.number, Math.max(0, t - start));
+        enteredAt.delete(outId);
+        court.delete(outId);
+      }
+      if (inId && !court.has(inId)) {
+        court.add(inId);
+        enteredAt.set(inId, t);
+      }
+    }
+
+    for (const id of court) {
+      const start = enteredAt.get(id) ?? 0;
+      addDuration(id, q.number, Math.max(0, qEnd - start));
+    }
+  }
+
+  return { court, times };
+}
+export function playingTimes(game: Game, plays: Play[], now: number): Map<string, { totalMs: number; byQuarter: Map<number, number> }> | null {
+  return walkCourt(game, plays, now)?.times ?? null;
+}
+export function onCourt(game: Game, plays: Play[], now: number): Set<string> | null {
+  return walkCourt(game, plays, now)?.court ?? null;
 }
 export function localDate() {
   const d = new Date();

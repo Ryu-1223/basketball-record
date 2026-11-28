@@ -201,3 +201,49 @@ describe('追加スタッツと記録オプションのルール', () => {
     await assertSucceeds(setDoc(oppReb, { ...play, gameId: 'scrimmage-extra', id: 'opp-reb-off', side: 'opponent', playerId: '8', action: 'rebound', shot: null, reboundKind: 'off' }));
   });
 });
+
+describe('交代と出場時間のルール', () => {
+  it('自チームの sub（outPlayerId あり）を保存でき、shot付き・outPlayerId不正・他アクションへの付与を拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const ref = doc(db, 'teams/basketball/games/game/plays/sub-1');
+    await assertSucceeds(setDoc(ref, { ...play, id: 'sub-1', action: 'sub', shot: null, playerId: 'p8', outPlayerId: 'p7' }));
+    await assertFails(setDoc(ref, { ...play, id: 'sub-1', action: 'sub', shot: '2', playerId: 'p8', outPlayerId: 'p7' }));
+    await assertFails(setDoc(ref, { ...play, id: 'sub-1', action: 'sub', shot: null, playerId: 'p8' }));
+    await assertFails(setDoc(ref, { ...play, id: 'sub-1', action: 'sub', shot: null, playerId: 'p8', outPlayerId: '' }));
+    await assertFails(setDoc(ref, { ...play, id: 'sub-1', action: 'sub', shot: null, playerId: 'p7', outPlayerId: 'p7' }));
+    await assertFails(setDoc(ref, { ...play, id: 'sub-1', action: 'rebound', shot: null, playerId: 'p8', outPlayerId: 'p7' }));
+    await assertFails(setDoc(ref, { ...play, id: 'sub-1', action: 'made', shot: '2', playerId: 'p8', outPlayerId: 'p7' }));
+  });
+
+  it('相手側（side=opponent）の sub は対外試合でも部内ゲームでも拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const extRef = doc(db, 'teams/basketball/games/game/plays/opp-sub');
+    await assertFails(setDoc(extRef, { ...play, id: 'opp-sub', side: 'opponent', playerId: '8', outPlayerId: '7', action: 'sub', shot: null }));
+
+    const scrimPath = 'teams/basketball/games/scrimmage-sub';
+    await assertSucceeds(setDoc(doc(db, scrimPath), {
+      ...game,
+      id: 'scrimmage-sub',
+      kind: 'scrimmage',
+      sessionId: 'session-sub',
+      recordOptions: { substitutions: true },
+      opponentRoster: [
+        { id: '7', number: '7', name: '田中', memberId: 'p7' },
+        { id: '8', number: '8', name: '鈴木', memberId: 'p8' },
+      ],
+    }));
+    const scrimOppRef = doc(db, `${scrimPath}/plays/opp-sub`);
+    await assertFails(setDoc(scrimOppRef, { ...play, gameId: 'scrimmage-sub', id: 'opp-sub', side: 'opponent', playerId: '8', outPlayerId: '7', action: 'sub', shot: null }));
+    const scrimOwnRef = doc(db, `${scrimPath}/plays/own-sub`);
+    await assertSucceeds(setDoc(scrimOwnRef, { ...play, gameId: 'scrimmage-sub', id: 'own-sub', playerId: 'p8', outPlayerId: 'p7', action: 'sub', shot: null }));
+  });
+
+  it('recordOptions に substitutions: true を保存でき、不正キーや非真偽値は拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const path = 'teams/basketball/games/sub-options-game';
+    await assertSucceeds(setDoc(doc(db, path), { ...game, id: 'sub-options-game', recordOptions: { substitutions: true } }));
+    await assertSucceeds(updateDoc(doc(db, path), { recordOptions: { assist: true, substitutions: false } }));
+    await assertFails(updateDoc(doc(db, path), { recordOptions: { substitutions: true, invalidKey: true } }));
+    await assertFails(updateDoc(doc(db, path), { recordOptions: { substitutions: 'yes' } }));
+  });
+});

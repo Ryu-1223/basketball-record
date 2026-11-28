@@ -135,7 +135,7 @@ th:first-child { text-align: left; overflow-wrap: anywhere; }
 .sheet-player { border: 1px solid var(--line); padding: 12px; border-radius: 4px; display: grid; gap: 8px; }
 .inline-check { display: flex; flex-direction: row; align-items: center; gap: 8px; }
 .inline-check input { width: 20px; height: 20px; min-height: 20px; flex-shrink: 0; }
-.to-actions { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin: 16px 0; }
+.to-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; margin: 16px 0; }
 .to-actions button { padding: 10px 4px; font-size: 14px; }
 .sheet-pages { overflow-x: auto; }
 .sheet-paper { width: 100%; margin: 16px 0; background: white; border: 1px solid var(--line); }
