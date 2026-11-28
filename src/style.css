@@ -219,3 +219,7 @@ summary { min-height: 48px; line-height: 1.5; padding-block: 12px; }
 @media (max-width: 360px) { .shell { padding-inline: 12px; } }
 dialog:has(.player-grid) { padding: 12px; }
 .game-active .to-actions, .result-tabs { gap: 8px; }
+.extra-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; margin: 12px 0; }
+.extra-actions button { min-height: 48px; padding: 10px 4px; font-size: 14px; min-width: 0; word-break: keep-all; overflow-wrap: normal; }
+.game-active .extra-actions { gap: 8px; margin: 6px 0; }
+fieldset.panel legend { font-size: 17px; font-weight: 700; padding: 0 4px; }
