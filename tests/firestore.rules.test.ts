@@ -145,3 +145,59 @@ it('ゴミ箱の記録を編集・復元・期限偽造できず、復元後も�
   await assertFails(updateDoc(doc(db, path), { generation: 2 }));
   await assertFails(updateDoc(doc(db, path), { trashedAt: 100, expiresAt: 200 }));
 });
+
+describe('追加スタッツと記録オプションのルール', () => {
+  it('自チームのアシスト・ターンオーバー・ブロックを保存でき、シュート付きは拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    for (const action of ['assist', 'turnover', 'block'] as const) {
+      const ref = doc(db, `teams/basketball/games/game/plays/extra-${action}`);
+      await assertSucceeds(setDoc(ref, { ...play, id: `extra-${action}`, action, shot: null }));
+      await assertFails(setDoc(ref, { ...play, id: `extra-${action}`, action, shot: '2' }));
+    }
+  });
+
+  it('reboundKind はリバウンドの off/def のみ許可し、他アクションや不正値は拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const ref = doc(db, 'teams/basketball/games/game/plays/reb-kind');
+    await assertSucceeds(setDoc(ref, { ...play, id: 'reb-kind', action: 'rebound', shot: null, reboundKind: 'off' }));
+    await assertSucceeds(setDoc(ref, { ...play, id: 'reb-kind', action: 'rebound', shot: null, reboundKind: 'def' }));
+    await assertFails(setDoc(ref, { ...play, id: 'reb-kind', action: 'rebound', shot: null, reboundKind: 'invalid' }));
+    await assertFails(setDoc(ref, { ...play, id: 'reb-kind', action: 'rebound', shot: null, reboundKind: null }));
+    await assertFails(setDoc(ref, { ...play, id: 'reb-kind', action: 'steal', shot: null, reboundKind: 'off' }));
+    await assertFails(setDoc(ref, { ...play, id: 'reb-kind', action: 'assist', shot: null, reboundKind: 'def' }));
+  });
+
+  it('recordOptions は許可された4キーの真偽値のみ保存でき、不正キーや非真偽値は拒否する', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const path = 'teams/basketball/games/options-game';
+    await assertSucceeds(setDoc(doc(db, path), { ...game, id: 'options-game', recordOptions: { assist: true, turnover: false, block: true, reboundSplit: true } }));
+    await assertSucceeds(updateDoc(doc(db, path), { recordOptions: { assist: false } }));
+    await assertFails(updateDoc(doc(db, path), { recordOptions: { assist: true, unknownKey: true } }));
+    await assertFails(updateDoc(doc(db, path), { recordOptions: { assist: 'yes' } }));
+  });
+
+  it('対外試合では相手のアシスト等を拒否し、部内ゲームでは相手組に保存できる', async () => {
+    const db = environment.authenticatedContext('team-user', { teamId: 'basketball' }).firestore();
+    const extRef = doc(db, 'teams/basketball/games/game/plays/opp-assist');
+    await assertFails(setDoc(extRef, { ...play, id: 'opp-assist', side: 'opponent', playerId: '7', action: 'assist', shot: null }));
+    await assertFails(setDoc(extRef, { ...play, id: 'opp-assist', side: 'opponent', playerId: '7', action: 'turnover', shot: null }));
+    await assertFails(setDoc(extRef, { ...play, id: 'opp-assist', side: 'opponent', playerId: '7', action: 'block', shot: null }));
+
+    const scrimPath = 'teams/basketball/games/scrimmage-extra';
+    await assertSucceeds(setDoc(doc(db, scrimPath), {
+      ...game,
+      id: 'scrimmage-extra',
+      kind: 'scrimmage',
+      sessionId: 'session-extra',
+      recordOptions: { assist: true, turnover: true, block: true, reboundSplit: true },
+      opponentRoster: [{ id: '8', number: '8', name: '鈴木', memberId: 'p8' }],
+    }));
+    for (const action of ['assist', 'turnover', 'block'] as const) {
+      const ref = doc(db, `${scrimPath}/plays/opp-${action}`);
+      await assertSucceeds(setDoc(ref, { ...play, gameId: 'scrimmage-extra', id: `opp-${action}`, side: 'opponent', playerId: '8', action, shot: null }));
+      await assertFails(setDoc(ref, { ...play, gameId: 'scrimmage-extra', id: `opp-${action}`, side: 'opponent', playerId: '@unknown', action, shot: null }));
+    }
+    const oppReb = doc(db, `${scrimPath}/plays/opp-reb-off`);
+    await assertSucceeds(setDoc(oppReb, { ...play, gameId: 'scrimmage-extra', id: 'opp-reb-off', side: 'opponent', playerId: '8', action: 'rebound', shot: null, reboundKind: 'off' }));
+  });
+});

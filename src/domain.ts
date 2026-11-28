@@ -2,27 +2,60 @@ import type { SheetInfo, ToDetails, ToAction } from './to';
 export type Player = { id: string; name: string; number: string; active: boolean };
 export type RosterPlayer = Pick<Player, 'id' | 'name' | 'number'>;
 export type Quarter = { number: number; startedAt: number; endedAt: number | null; pausedAt?: number | null; pausedMs?: number };
+export type RecordOptions = {
+  assist?: boolean;
+  turnover?: boolean;
+  block?: boolean;
+  reboundSplit?: boolean;
+};
+export const recordOptionLabels: Record<keyof RecordOptions, string> = {
+  assist: 'アシストを記録',
+  turnover: 'ターンオーバーを記録',
+  block: 'ブロックを記録',
+  reboundSplit: 'リバウンドを攻撃・守備に分けて記録',
+};
+export function normalizeRecordOptions(options?: RecordOptions): RecordOptions | undefined {
+  if (!options) return undefined;
+  const next: RecordOptions = {};
+  if (options.assist) next.assist = true;
+  if (options.turnover) next.turnover = true;
+  if (options.block) next.block = true;
+  if (options.reboundSplit) next.reboundSplit = true;
+  return Object.keys(next).length ? next : undefined;
+}
+export type RecordCheckedSide = {
+  shots?: boolean; rebound?: boolean; steal?: boolean;
+  assist?: boolean; turnover?: boolean; block?: boolean;
+};
 export type Game = {
   id: string; opponent: string; date: string; roster: RosterPlayer[];
   status: 'ready' | 'running' | 'interval' | 'finished';
-  recordChecked?: { own?: { shots?: boolean; rebound?: boolean; steal?: boolean }; opponent?: { shots?: boolean; rebound?: boolean; steal?: boolean } };
+  recordChecked?: { own?: RecordCheckedSide; opponent?: RecordCheckedSide };
+  recordOptions?: RecordOptions;
   kind?: 'scrimmage'; recordMode?: 'scores' | 'own' | 'both'; opponentRoster?: (RosterPlayer & { memberId: string })[]; sessionId?: string; archived?: boolean; generation?: number; trashedAt?: number; expiresAt?: number;
   quarters: Quarter[]; createdAt: number; updatedAt: number; opponentTracking?: boolean; sheet?: SheetInfo;
 };
+export const primaryActions = ['miss', 'made', 'rebound', 'steal'] as const;
+export const extraActions = ['assist', 'turnover', 'block'] as const;
+export type ExtraAction = typeof extraActions[number];
 export const actionLabels = {
   miss: 'シュート外', made: 'シュート決', rebound: 'リバウンド', steal: 'パスカット',
+  assist: 'アシスト', turnover: 'ターンオーバー', block: 'ブロック',
 } as const;
 export type Action = keyof typeof actionLabels;
 export type Shot = '2' | '3' | 'ft';
+export type ReboundKind = 'off' | 'def';
+export const reboundKindLabels: Record<ReboundKind, string> = { off: '攻撃リバウンド', def: '守備リバウンド' };
 export type Play = {
   id: string; gameId: string; quarter: number; elapsedMs: number;
   playerId: string; action: Action | ToAction; shot: Shot | null;
+  reboundKind?: ReboundKind;
   createdAt: number; updatedAt: number; cancelled: boolean; side?: 'opponent';
   details?: ToDetails;
   generation?: number;
   order?: number;
 };
-export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string; side?: 'opponent' };
+export type Draft = Pick<Play, 'id' | 'gameId' | 'quarter' | 'elapsedMs' | 'createdAt'> & { action: Action; playerId?: string; side?: 'opponent'; reboundKind?: ReboundKind };
 
 export function formatTime(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -32,10 +65,11 @@ export function elapsed(quarter: Quarter | undefined, now: number) {
   return quarter ? Math.max(0, (quarter.pausedAt ?? quarter.endedAt ?? now) - quarter.startedAt - (quarter.pausedMs ?? 0)) : 0;
 }
 export function isShot(action: Play['action']) { return action === 'made' || action === 'miss'; }
-export function playLabel(play: Pick<Play, 'action' | 'shot' | 'details'>) {
+export function playLabel(play: Pick<Play, 'action' | 'shot' | 'details' | 'reboundKind'>) {
   if (play.action === 'foul') return `ファウル ${play.details?.code ?? ''}${play.details?.penalty ?? ''}${play.details?.note ? ` (${play.details.note})` : ''}`;
   if (play.action === 'timeout') return `タイムアウト${play.details?.remainingSec != null ? `・残り${formatTime(play.details.remainingSec * 1000)}` : '・時間未記入'}`;
   if (play.action === 'entry') return '初出場';
+  if (play.action === 'rebound' && play.reboundKind) return reboundKindLabels[play.reboundKind];
   if (!isShot(play.action)) return actionLabels[play.action];
   return `${play.shot === 'ft' ? 'フリースロー' : `${play.shot}点シュート`}${play.action === 'made' ? '成功' : '失敗'}`;
 }
@@ -85,11 +119,13 @@ export function beginPlay(game: Game, action: Action, now: number, id: string = 
   if (now < q.startedAt) throw new Error('端末の時刻が変更されています。時刻を確認してください。');
   return { id, gameId: game.id, quarter: q.number, elapsedMs: elapsed(q, now), action, createdAt: now };
 }
-export function completePlay(game: Game, draft: Draft, playerId: string, shot: Shot | null, now: number): Play {
+export function completePlay(game: Game, draft: Draft, playerId: string, shot: Shot | null, now: number, reboundKind?: ReboundKind): Play {
   if (draft.gameId !== game.id || !((playerId === '@unknown' && draft.action === 'made') || (draft.side === 'opponent' ? game.opponentRoster?.some(p => p.id === playerId) : game.roster.some(p => p.id === playerId)))) throw new Error('この試合の選手を選んでください。');
   if (game.status !== 'running' || draft.quarter !== game.quarters.at(-1)?.number) throw new Error('Qの状態が変わりました。もう一度記録してください。');
   if (isShot(draft.action) && !shot) throw new Error('シュートの種類を選んでください。');
-  return { ...draft, playerId, shot: isShot(draft.action) ? shot : null, cancelled: false, updatedAt: now };
+  const kind = draft.action === 'rebound' ? (reboundKind ?? draft.reboundKind) : undefined;
+  const { reboundKind: _reboundKind, ...base } = draft;
+  return { ...base, playerId, shot: isShot(draft.action) ? shot : null, ...(kind ? { reboundKind: kind } : {}), cancelled: false, updatedAt: now };
 }
 export function localDate() {
   const d = new Date();
